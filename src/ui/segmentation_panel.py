@@ -20,6 +20,11 @@ from tkinter import colorchooser, messagebox, simpledialog, ttk
 from models.annotation_model import PolygonAnnotation
 from utils.config import ACCENT, BG_DARK, BG_PANEL, TEXT_LIGHT
 
+
+def _hover_btn(btn, normal, hover):
+    btn.bind("<Enter>", lambda _e: btn.config(bg=hover))
+    btn.bind("<Leave>", lambda _e: btn.config(bg=normal))
+
 # ── default colour palette ─────────────────────────────────────────────────
 _PALETTE = [
     "#E74C3C", "#3498DB", "#2ECC71", "#F39C12", "#9B59B6",
@@ -75,33 +80,42 @@ class SegmentationPanel(tk.Frame):
     def _build(self) -> None:
         pad = {"padx": 8, "pady": 3}
 
-        # title
+        hdr = tk.Frame(self, bg=BG_PANEL)
+        hdr.pack(fill=tk.X, pady=(8, 0))
         tk.Label(
-            self, text="SEMANTIC SEGMENTATION",
+            hdr, text="SEGMENTATION",
             bg=BG_PANEL, fg=ACCENT,
             font=("Consolas", 10, "bold"),
-        ).pack(pady=(10, 2))
+        ).pack(side=tk.LEFT, padx=10)
 
-        ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8)
+        ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=(4, 0))
 
-        # how-to hint
-        tk.Label(
+        self._tips_open = False
+        tips_row = tk.Frame(self, bg=BG_PANEL)
+        tips_row.pack(fill=tk.X, padx=8, pady=(4, 0))
+        self._tips_btn = tk.Button(
+            tips_row, text="ℹ  How to annotate  ▸",
+            bg=BG_DARK, fg="#8888aa", relief=tk.FLAT,
+            font=("Consolas", 8), cursor="hand2",
+            activebackground=BG_PANEL, activeforeground=TEXT_LIGHT, bd=0,
+            anchor=tk.W, command=self._toggle_tips,
+        )
+        self._tips_btn.pack(fill=tk.X, ipady=2)
+        self._tips_label = tk.Label(
             self,
             text=(
-                "\n  HOW TO ANNOTATE:\n"
                 "  1. Pick a semantic class below\n"
                 "  2. Click '⬠ Polygon' mode button\n"
                 "  3. Click canvas to place vertices\n"
                 "  4. Double-click to close polygon\n"
-                "  5. Press Esc to cancel in-progress\n"
+                "  5. Press Esc to cancel in-progress"
             ),
             bg=BG_PANEL, fg="#8888aa",
             font=("Consolas", 8), justify=tk.LEFT,
-        ).pack(anchor=tk.W, padx=4)
+        )
 
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=4)
 
-        # ── opacity slider ─────────────────────────────────────────────────
         op_row = tk.Frame(self, bg=BG_PANEL)
         op_row.pack(fill=tk.X, **pad)
         tk.Label(op_row, text="Mask opacity:", bg=BG_PANEL, fg=TEXT_LIGHT,
@@ -119,16 +133,14 @@ class SegmentationPanel(tk.Frame):
 
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=2)
 
-        # ── semantic class list ────────────────────────────────────────────
         tk.Label(
             self, text="SEMANTIC CLASSES",
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8, "bold"),
+            bg=BG_PANEL, fg="#888899", font=("Consolas", 7, "bold"),
         ).pack(pady=(4, 2))
 
         cls_outer = tk.Frame(self, bg=BG_PANEL)
         cls_outer.pack(fill=tk.X, padx=8)
 
-        # colour swatch strip (left)
         self._swatch_canvas = tk.Canvas(
             cls_outer, width=16, bg=BG_DARK,
             bd=0, highlightthickness=0, height=90,
@@ -150,35 +162,37 @@ class SegmentationPanel(tk.Frame):
         cls_sb.config(command=self._cls_listbox.yview)
         self._cls_listbox.bind("<<ListboxSelect>>", self._on_cls_listbox_select)
 
-        # class action buttons
         cls_btn_row = tk.Frame(self, bg=BG_PANEL)
         cls_btn_row.pack(fill=tk.X, padx=8, pady=(4, 2))
 
-        _cb = dict(relief=tk.FLAT, padx=5, pady=2,
-                   font=("Consolas", 8), cursor="hand2",
-                   bg=ACCENT, fg="white",
-                   activebackground="#9d8fff", activeforeground="white")
-
-        tk.Button(cls_btn_row, text="+ Add",
-                  command=self._prompt_add_class, **_cb).pack(side=tk.LEFT, padx=2)
-        tk.Button(cls_btn_row, text="✎ Rename",
-                  command=self._rename_class, **_cb).pack(side=tk.LEFT, padx=2)
-        tk.Button(cls_btn_row, text="🎨 Color",
-                  command=self._pick_color, **_cb).pack(side=tk.LEFT, padx=2)
-        tk.Button(cls_btn_row, text="✕ Del",
-                  command=self._delete_class,
-                  bg="#7a3333", fg="white", relief=tk.FLAT,
-                  padx=5, pady=2, font=("Consolas", 8), cursor="hand2",
-                  activebackground="#a04040",
-                  ).pack(side=tk.LEFT, padx=2)
+        for text, cmd, bg, hover in [
+            ("+ Add",    self._prompt_add_class, ACCENT,    "#9d8fff"),
+            ("✎ Rename", self._rename_class,     ACCENT,    "#9d8fff"),
+            ("🎨 Color", self._pick_color,        ACCENT,    "#9d8fff"),
+            ("✕ Del",    self._delete_class,      "#7a3333", "#a04040"),
+        ]:
+            b = tk.Button(
+                cls_btn_row, text=text, command=cmd,
+                bg=bg, fg="white", relief=tk.FLAT,
+                padx=5, pady=2, font=("Consolas", 8), cursor="hand2",
+                activebackground=hover, activeforeground="white", bd=0,
+            )
+            b.pack(side=tk.LEFT, padx=2)
+            _hover_btn(b, bg, hover)
 
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=6)
 
-        # ── polygon list ───────────────────────────────────────────────────
+        poly_hdr = tk.Frame(self, bg=BG_PANEL)
+        poly_hdr.pack(fill=tk.X, padx=8, pady=(0, 2))
         tk.Label(
-            self, text="POLYGONS ON THIS FRAME",
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8, "bold"),
-        ).pack(pady=(0, 2))
+            poly_hdr, text="POLYGONS ON THIS FRAME",
+            bg=BG_PANEL, fg="#888899", font=("Consolas", 7, "bold"),
+        ).pack(side=tk.LEFT)
+        self._stats_var = tk.StringVar(value="0 polygons")
+        tk.Label(
+            poly_hdr, textvariable=self._stats_var,
+            bg=BG_PANEL, fg=ACCENT, font=("Consolas", 7, "bold"),
+        ).pack(side=tk.RIGHT)
 
         poly_frame = tk.Frame(self, bg=BG_PANEL)
         poly_frame.pack(fill=tk.BOTH, expand=True, padx=8)
@@ -197,38 +211,48 @@ class SegmentationPanel(tk.Frame):
         self._poly_listbox.bind("<<ListboxSelect>>", self._on_poly_listbox_select)
         poly_sb.config(command=self._poly_listbox.yview)
 
-        stats_row = tk.Frame(self, bg=BG_PANEL)
-        stats_row.pack(fill=tk.X, padx=8, pady=(2, 0))
-
-        self._stats_var = tk.StringVar(value="0 polygons")
-        tk.Label(
-            stats_row, textvariable=self._stats_var,
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8),
-        ).pack(side=tk.LEFT)
-
-        tk.Button(
-            stats_row, text="🗑 Delete Selected",
+        del_row = tk.Frame(self, bg=BG_PANEL)
+        del_row.pack(fill=tk.X, padx=8, pady=(3, 0))
+        del_poly_btn = tk.Button(
+            del_row, text="🗑  Delete Selected",
             command=self._delete_selected_poly,
             bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=6, pady=2, font=("Consolas", 8), cursor="hand2",
-        ).pack(side=tk.RIGHT)
+            padx=6, pady=3, font=("Consolas", 8), cursor="hand2",
+            activebackground="#a04040", activeforeground="white", bd=0,
+        )
+        del_poly_btn.pack(side=tk.RIGHT)
+        _hover_btn(del_poly_btn, "#7a3333", "#a04040")
 
-        # ── bottom buttons ─────────────────────────────────────────────────
-        ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=4)
+        ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=(6, 4))
 
-        tk.Button(
+        save_btn = tk.Button(
             self, text="💾  Save Annotations",
             command=lambda: self._on_save and self._on_save(),
             bg="#2d8a4e", fg="white", relief=tk.FLAT,
-            padx=8, pady=6, font=("Consolas", 9, "bold"), cursor="hand2",
-        ).pack(fill=tk.X, padx=8, pady=2)
+            padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
+            activebackground="#3da060", activeforeground="white", bd=0,
+        )
+        save_btn.pack(fill=tk.X, padx=8, pady=2)
+        _hover_btn(save_btn, "#2d8a4e", "#3da060")
 
-        tk.Button(
+        clear_btn = tk.Button(
             self, text="🗑  Clear Frame Polygons",
             command=lambda: self._on_clear and self._on_clear(),
             bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=8, pady=6, font=("Consolas", 9, "bold"), cursor="hand2",
-        ).pack(fill=tk.X, padx=8, pady=(2, 8))
+            padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
+            activebackground="#a04040", activeforeground="white", bd=0,
+        )
+        clear_btn.pack(fill=tk.X, padx=8, pady=(2, 8))
+        _hover_btn(clear_btn, "#7a3333", "#a04040")
+
+    def _toggle_tips(self):
+        self._tips_open = not self._tips_open
+        if self._tips_open:
+            self._tips_label.pack(anchor=tk.W, padx=10, pady=(0, 2))
+            self._tips_btn.config(text="ℹ  How to annotate  ▾")
+        else:
+            self._tips_label.pack_forget()
+            self._tips_btn.config(text="ℹ  How to annotate  ▸")
 
     # ── public API ─────────────────────────────────────────────────────────
 

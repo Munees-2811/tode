@@ -11,6 +11,11 @@ from models.annotation_model import BoundingBox
 from utils.config import ACCENT, BG_DARK, BG_PANEL, TEXT_LIGHT, YOLO_DEFAULT_MODEL, YOLO_MODELS
 
 
+def _hover_btn(btn, normal, hover):
+    btn.bind("<Enter>", lambda _e: btn.config(bg=hover))
+    btn.bind("<Leave>", lambda _e: btn.config(bg=normal))
+
+
 class AnnotationPanel(tk.Frame):
     def __init__(
         self,
@@ -95,14 +100,18 @@ class AnnotationPanel(tk.Frame):
         self._build_bottom_buttons()
 
     def _build_auto_tab(self, parent):
-        # ── Model selector ────────────────────────────────────────────────────
         tk.Label(
-            parent, text="Model  (.pt = Ultralytics · .onnx = AGPL-free)",
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8),
+            parent, text="Model",
+            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8, "bold"),
         ).pack(pady=(10, 2), padx=10, anchor=tk.W)
 
+        tk.Label(
+            parent, text=".pt = Ultralytics · .onnx = AGPL-free",
+            bg=BG_PANEL, fg="#666688", font=("Consolas", 7),
+        ).pack(padx=10, anchor=tk.W)
+
         model_row = tk.Frame(parent, bg=BG_PANEL)
-        model_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+        model_row.pack(fill=tk.X, padx=10, pady=(4, 6))
 
         self.model_var = tk.StringVar(value=YOLO_DEFAULT_MODEL)
         self._model_combo = ttk.Combobox(
@@ -113,42 +122,42 @@ class AnnotationPanel(tk.Frame):
         self._model_combo.bind("<<ComboboxSelected>>",
                                lambda _e: self._on_model_selected())
 
-        tk.Button(
+        browse_btn = tk.Button(
             model_row, text="📂",
             command=self._browse_model,
             bg=BG_DARK, fg=TEXT_LIGHT, relief=tk.FLAT,
             padx=6, font=("Consolas", 10), cursor="hand2",
-        ).pack(side=tk.LEFT, padx=(4, 0))
+            activebackground=ACCENT, activeforeground="white", bd=0,
+        )
+        browse_btn.pack(side=tk.LEFT, padx=(4, 0))
+        _hover_btn(browse_btn, BG_DARK, ACCENT)
 
-        # ── Confidence ────────────────────────────────────────────────────────
+        conf_hdr = tk.Frame(parent, bg=BG_PANEL)
+        conf_hdr.pack(fill=tk.X, padx=10, pady=(8, 2))
+
         tk.Label(
-            parent, text="Confidence Threshold",
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 9),
-        ).pack(pady=(4, 2), padx=10, anchor=tk.W)
+            conf_hdr, text="Confidence Threshold",
+            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8, "bold"),
+        ).pack(side=tk.LEFT)
 
-        conf_row = tk.Frame(parent, bg=BG_PANEL)
-        conf_row.pack(fill=tk.X, padx=10)
-
-        self.conf_var = tk.DoubleVar(value=0.45)
         self.conf_label = tk.Label(
-            conf_row, text="0.45",
-            bg=BG_PANEL, fg=ACCENT, font=("Consolas", 10, "bold"), width=5,
+            conf_hdr, text="0.45",
+            bg=BG_PANEL, fg=ACCENT, font=("Consolas", 9, "bold"), width=5,
         )
         self.conf_label.pack(side=tk.RIGHT)
 
-        conf_slider = tk.Scale(
-            conf_row, from_=0.1, to=0.95, resolution=0.05,
+        self.conf_var = tk.DoubleVar(value=0.45)
+        tk.Scale(
+            parent, from_=0.1, to=0.95, resolution=0.05,
             orient=tk.HORIZONTAL, variable=self.conf_var,
             command=self._on_conf_slider,
             bg=BG_PANEL, fg=TEXT_LIGHT, troughcolor=BG_DARK,
             highlightthickness=0, sliderrelief=tk.FLAT, showvalue=False,
-        )
-        conf_slider.pack(fill=tk.X, side=tk.LEFT, expand=True)
+        ).pack(fill=tk.X, padx=10)
 
-        # Filter classes
         tk.Label(
             parent, text="Filter Classes (comma-sep, blank=all)",
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8),
+            bg=BG_PANEL, fg="#666688", font=("Consolas", 7),
         ).pack(pady=(8, 2), padx=10, anchor=tk.W)
 
         self.filter_var = tk.StringVar(value="")
@@ -158,72 +167,105 @@ class AnnotationPanel(tk.Frame):
             relief=tk.FLAT, font=("Consolas", 9),
         ).pack(fill=tk.X, padx=10, ipady=4)
 
-        # Run buttons
-        tk.Button(
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
+            fill=tk.X, padx=10, pady=(10, 6))
+
+        yolo_one = tk.Button(
             parent, text="⚡  YOLO This Frame",
             command=self._on_yolo,
             bg=ACCENT, fg="white", relief=tk.FLAT,
-            padx=8, pady=6, font=("Consolas", 9, "bold"), cursor="hand2",
-        ).pack(fill=tk.X, padx=10, pady=(12, 3))
+            padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
+            activebackground="#9d8fff", activeforeground="white", bd=0,
+        )
+        yolo_one.pack(fill=tk.X, padx=10, pady=(0, 3))
+        _hover_btn(yolo_one, ACCENT, "#9d8fff")
 
-        tk.Button(
+        yolo_all = tk.Button(
             parent, text="🔁  YOLO All Frames",
             command=self._on_yolo_all,
             bg="#5a4fbf", fg="white", relief=tk.FLAT,
-            padx=8, pady=6, font=("Consolas", 9, "bold"), cursor="hand2",
-        ).pack(fill=tk.X, padx=10, pady=3)
+            padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
+            activebackground="#7a6adf", activeforeground="white", bd=0,
+        )
+        yolo_all.pack(fill=tk.X, padx=10, pady=(0, 8))
+        _hover_btn(yolo_all, "#5a4fbf", "#7a6adf")
 
     def _build_manual_tab(self, parent):
         tk.Label(
-            parent, text="Select Class for New Box",
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 9),
+            parent, text="Class for New Box",
+            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8, "bold"),
         ).pack(pady=(10, 2), padx=10, anchor=tk.W)
 
-        # Combobox (populated when YOLO loads)
         self.class_combo = ttk.Combobox(
             parent, textvariable=self.selected_class_var,
             font=("Consolas", 9), state="readonly",
         )
         self.class_combo.pack(fill=tk.X, padx=10, ipady=3)
 
-        # Custom class override
         tk.Label(
-            parent, text="  ─── or type custom class ───",
-            bg=BG_PANEL, fg="#888899", font=("Consolas", 8),
-        ).pack(pady=(6, 2))
-
-        custom_row = tk.Frame(parent, bg=BG_PANEL)
-        custom_row.pack(fill=tk.X, padx=10)
+            parent, text="or type custom class",
+            bg=BG_PANEL, fg="#555577", font=("Consolas", 7),
+        ).pack(pady=(8, 2), padx=10, anchor=tk.W)
 
         tk.Entry(
-            custom_row, textvariable=self.custom_class_var,
+            parent, textvariable=self.custom_class_var,
             bg=BG_DARK, fg=TEXT_LIGHT, insertbackground=TEXT_LIGHT,
             relief=tk.FLAT, font=("Consolas", 9),
-        ).pack(fill=tk.X, ipady=4)
+        ).pack(fill=tk.X, padx=10, ipady=4)
 
-        tk.Label(
+        tips_frame = tk.Frame(parent, bg=BG_PANEL)
+        tips_frame.pack(fill=tk.X, padx=10, pady=(10, 4))
+
+        self._tips_open = False
+        self._tips_toggle_btn = tk.Button(
+            tips_frame, text="ℹ  How to annotate  ▸",
+            bg=BG_DARK, fg="#8888aa", relief=tk.FLAT,
+            font=("Consolas", 8), cursor="hand2",
+            activebackground=BG_PANEL, activeforeground=TEXT_LIGHT, bd=0,
+            anchor=tk.W, command=self._toggle_tips,
+        )
+        self._tips_toggle_btn.pack(fill=tk.X, ipady=2)
+
+        self._tips_text = tk.Label(
             parent,
             text=(
-                "\n  HOW TO ANNOTATE:\n"
-                "  1. Click '✏ Draw Box' above\n"
-                "  2. Click & drag on the video\n"
+                "  1. Click '✏ Draw Box' in mode bar\n"
+                "  2. Click & drag on the canvas\n"
                 "  3. Box is added automatically\n"
                 "  4. Navigate frames & repeat\n"
                 "  5. Save when done"
             ),
             bg=BG_PANEL, fg="#8888aa",
             font=("Consolas", 8), justify=tk.LEFT,
-        ).pack(pady=(10, 0), anchor=tk.W)
+        )
+
+    def _toggle_tips(self):
+        self._tips_open = not self._tips_open
+        if self._tips_open:
+            self._tips_text.pack(anchor=tk.W, padx=10, pady=(0, 4))
+            self._tips_toggle_btn.config(text="ℹ  How to annotate  ▾")
+        else:
+            self._tips_text.pack_forget()
+            self._tips_toggle_btn.config(text="ℹ  How to annotate  ▸")
 
     def _build_box_list(self):
-        separator_frame = tk.Frame(self, bg=BG_PANEL)
-        separator_frame.pack(fill=tk.X, padx=8, pady=(4, 0))
-        ttk.Separator(separator_frame, orient=tk.HORIZONTAL).pack(fill=tk.X)
+        sep_f = tk.Frame(self, bg=BG_PANEL)
+        sep_f.pack(fill=tk.X, padx=8, pady=(4, 0))
+        ttk.Separator(sep_f, orient=tk.HORIZONTAL).pack(fill=tk.X)
+
+        hdr = tk.Frame(self, bg=BG_PANEL)
+        hdr.pack(fill=tk.X, padx=8, pady=(4, 2))
 
         tk.Label(
-            self, text="DETECTED BOXES",
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8, "bold"),
-        ).pack(pady=(4, 2))
+            hdr, text="DETECTED BOXES",
+            bg=BG_PANEL, fg="#888899", font=("Consolas", 7, "bold"),
+        ).pack(side=tk.LEFT)
+
+        self.stats_var = tk.StringVar(value="0 boxes")
+        tk.Label(
+            hdr, textvariable=self.stats_var,
+            bg=BG_PANEL, fg=ACCENT, font=("Consolas", 7, "bold"),
+        ).pack(side=tk.RIGHT)
 
         list_frame = tk.Frame(self, bg=BG_PANEL)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=8)
@@ -241,38 +283,42 @@ class AnnotationPanel(tk.Frame):
         self.listbox.bind("<<ListboxSelect>>", self._on_listbox_select)
         scrollbar.config(command=self.listbox.yview)
 
-        self.stats_var = tk.StringVar(value="0 boxes")
-        stats_row = tk.Frame(self, bg=BG_PANEL)
-        stats_row.pack(fill=tk.X, padx=8, pady=(2, 0))
+        del_row = tk.Frame(self, bg=BG_PANEL)
+        del_row.pack(fill=tk.X, padx=8, pady=(3, 0))
 
-        tk.Label(
-            stats_row, textvariable=self.stats_var,
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 8),
-        ).pack(side=tk.LEFT)
-
-        tk.Button(
-            stats_row, text="🗑 Delete Selected",
+        del_btn = tk.Button(
+            del_row, text="🗑  Delete Selected",
             command=self._delete_selected,
             bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=6, pady=2, font=("Consolas", 8), cursor="hand2",
-        ).pack(side=tk.RIGHT)
+            padx=6, pady=3, font=("Consolas", 8), cursor="hand2",
+            activebackground="#a04040", activeforeground="white", bd=0,
+        )
+        del_btn.pack(side=tk.RIGHT)
+        _hover_btn(del_btn, "#7a3333", "#a04040")
 
     def _build_bottom_buttons(self):
-        ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=4)
+        ttk.Separator(self, orient=tk.HORIZONTAL).pack(
+            fill=tk.X, padx=8, pady=(6, 4))
 
-        tk.Button(
+        save_btn = tk.Button(
             self, text="💾  Save Annotations",
             command=self._on_save,
             bg="#2d8a4e", fg="white", relief=tk.FLAT,
-            padx=8, pady=6, font=("Consolas", 9, "bold"), cursor="hand2",
-        ).pack(fill=tk.X, padx=8, pady=2)
+            padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
+            activebackground="#3da060", activeforeground="white", bd=0,
+        )
+        save_btn.pack(fill=tk.X, padx=8, pady=2)
+        _hover_btn(save_btn, "#2d8a4e", "#3da060")
 
-        tk.Button(
+        clear_btn = tk.Button(
             self, text="🗑  Clear Frame",
             command=self._on_clear,
             bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=8, pady=6, font=("Consolas", 9, "bold"), cursor="hand2",
-        ).pack(fill=tk.X, padx=8, pady=(2, 8))
+            padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
+            activebackground="#a04040", activeforeground="white", bd=0,
+        )
+        clear_btn.pack(fill=tk.X, padx=8, pady=(2, 8))
+        _hover_btn(clear_btn, "#7a3333", "#a04040")
 
     # ── model callbacks ───────────────────────────────────────────────────────
     def _on_model_selected(self):
@@ -299,9 +345,16 @@ class AnnotationPanel(tk.Frame):
 
     # ── callbacks ─────────────────────────────────────────────────────────────
     def _on_conf_slider(self, val):
-        self.conf_label.config(text=f"{float(val):.2f}")
+        fval = float(val)
+        if fval >= 0.70:
+            color = "#55cc77"
+        elif fval >= 0.40:
+            color = "#f0c040"
+        else:
+            color = "#cc5555"
+        self.conf_label.config(text=f"{fval:.2f}", fg=color)
         if self._on_conf_change:
-            self._on_conf_change(float(val))
+            self._on_conf_change(fval)
 
     def _delete_selected(self):
         sel = self.listbox.curselection()
@@ -331,13 +384,11 @@ class AnnotationPanel(tk.Frame):
     def update_boxes(self, boxes: list[BoundingBox], class_names: dict[int, str]):
         self._class_names = class_names
 
-        # Update combobox values from YOLO class names
         names = sorted(set(class_names.values())) if class_names else ["object"]
         self.class_combo["values"] = names
         if names and self.selected_class_var.get() not in names:
             self.selected_class_var.set(names[0])
 
-        # Update listbox
         self.listbox.delete(0, tk.END)
         for i, box in enumerate(boxes):
             src  = "YOLO" if box.confidence < 1.0 else " MAN"
@@ -346,6 +397,9 @@ class AnnotationPanel(tk.Frame):
                 tk.END,
                 f"  [{i:02d}] {src}  {box.class_name:<14} {conf}",
             )
+            row_fg = ACCENT if box.confidence < 1.0 else "#55cc77"
+            self.listbox.itemconfig(i, fg=row_fg)
+
         n = len(boxes)
         self.stats_var.set(f"{n} box{'es' if n != 1 else ''}")
 
