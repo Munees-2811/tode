@@ -2,7 +2,7 @@
 import os
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 
 from core.annotation_manager import AnnotationManager
 from core.exporter import DatasetExporter
@@ -20,7 +20,7 @@ from ui.log_viewer import LogViewer
 from ui.segmentation_panel import SegmentationPanel
 from ui.source_dialog import SourceDialog
 from ui.video_player import VideoPlayer
-from utils.config import ACCENT, BG_DARK, BG_PANEL, TEXT_LIGHT
+from utils.config import ACCENT, BG_DARK, BG_PANEL
 from utils.logger import get_logger
 
 log = get_logger("ui.MainWindow")
