@@ -486,7 +486,7 @@ class MainWindow(tk.Frame):
             ann.polygons, list(class_names.values())
         )
         self._set_status(
-            f"Polygon added to frame {idx} — '{cls_name}', "
+            f"Polygon added to frame {idx + 1} — '{cls_name}', "
             f"{len(points)} pts. Total: {len(ann.polygons)} polygon(s)."
         )
 
@@ -515,7 +515,7 @@ class MainWindow(tk.Frame):
         self.seg_panel.update_polygons(
             ann.polygons, list(self.manager.yolo.class_names.values())
         )
-        self._set_status(f"Deleted polygon [{poly_index}] from frame {idx}.")
+        self._set_status(f"Deleted polygon [{poly_index}] from frame {idx + 1}.")
 
     def _clear_seg_frame(self) -> None:
         if not self._require_manager():
@@ -532,7 +532,7 @@ class MainWindow(tk.Frame):
         ann = self.manager.get_annotation(idx)
         self.player.set_overlay_polygons(ann.polygons)
         self.seg_panel.update_polygons([], [])
-        self._set_status(f"Cleared all polygons on frame {idx}.")
+        self._set_status(f"Cleared all polygons on frame {idx + 1}.")
 
     def _sync_color_map(self) -> None:
         """Push current class→colour mapping into the canvas."""
@@ -575,7 +575,7 @@ class MainWindow(tk.Frame):
             else "frame"
         )
         self._set_status(
-            f"Manual box added — '{cls_name}' on {src_label} {idx}. "
+            f"Manual box added — '{cls_name}' on {src_label} {idx + 1}. "
             f"Total: {len(ann.boxes)} box(es)."
         )
         self._refresh_ann_count()
@@ -619,7 +619,7 @@ class MainWindow(tk.Frame):
         ann = self.manager.get_annotation(idx)
         self.player.set_overlay_boxes(ann.boxes)
         self.ann_panel.update_boxes(ann.boxes, self.manager.yolo.class_names)
-        self._set_status(f"Deleted box [{box_index}] from index {idx}.")
+        self._set_status(f"Deleted box [{box_index}] from index {idx + 1}.")
         self._refresh_ann_count()
 
     # ── confidence change ─────────────────────────────────────────────────────
@@ -660,7 +660,7 @@ class MainWindow(tk.Frame):
         conf       = self.ann_panel.get_confidence_threshold()
         cls_filter = self.ann_panel.get_class_filter()
         self.manager.yolo.confidence = conf
-        self._set_status(f"Running YOLO on index {idx}…")
+        self._set_status(f"Running YOLO on index {idx + 1}…")
         log.info(f"YOLO single — idx={idx}, conf={conf}, filter={cls_filter}")
 
         def _work():
@@ -679,7 +679,7 @@ class MainWindow(tk.Frame):
                 ann.boxes, self.manager.yolo.class_names
             )
             self._set_status(
-                f"YOLO: {len(ann.boxes)} object(s) at index {idx}."
+                f"YOLO: {len(ann.boxes)} object(s) at index {idx + 1}."
             )
             self._refresh_ann_count()
 
@@ -825,7 +825,7 @@ class MainWindow(tk.Frame):
         self.manager.clear_frame(idx)
         self.player.set_overlay_boxes([])
         self.ann_panel.update_boxes([], {})
-        self._set_status(f"Cleared annotations for index {idx}.")
+        self._set_status(f"Cleared annotations for index {idx + 1}.")
         self._refresh_ann_count()
 
     # ── log viewer ────────────────────────────────────────────────────────────

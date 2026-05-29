@@ -151,7 +151,7 @@ class VideoPlayer(tk.Frame):
         ctrl.pack(fill=tk.X, pady=(2, 0))
 
         self.slider = tk.Scale(
-            ctrl, from_=0, to=0, orient=tk.HORIZONTAL,
+            ctrl, from_=1, to=1, orient=tk.HORIZONTAL,
             command=self._on_slider,
             bg=BG_PANEL, fg=TEXT_LIGHT, troughcolor=BG_DARK,
             highlightthickness=0, sliderrelief=tk.FLAT,
@@ -222,7 +222,7 @@ class VideoPlayer(tk.Frame):
         self._frame_path_provider = frame_path_provider
         self._clear_hint()
         if indices:
-            self.slider.config(to=len(indices) - 1)
+            self.slider.config(to=len(indices))
             self._show_current()
 
     def set_overlay_boxes(self, boxes: list[BoundingBox]):
@@ -649,14 +649,14 @@ class VideoPlayer(tk.Frame):
             self._play_job = self.after(self._play_interval, self._tick)
 
     def _on_slider(self, val):
-        self._goto(int(val), update_slider=False)
+        self._goto(int(val) - 1, update_slider=False)
 
     def _goto(self, pos: int, update_slider: bool = True):
         if not self._indices:
             return
         self._pos = max(0, min(pos, len(self._indices) - 1))
         if update_slider:
-            self.slider.set(self._pos)
+            self.slider.set(self._pos + 1)
         self._show_current()
 
     def _show_current(self):
@@ -669,7 +669,7 @@ class VideoPlayer(tk.Frame):
         self._current_frame = frame
         self._frame_h, self._frame_w = frame.shape[:2]
         self.idx_label.config(
-            text=f"Frame {idx}  ({self._pos + 1} / {len(self._indices)})"
+            text=f"Frame {idx + 1}  ({self._pos + 1} / {len(self._indices)})"
         )
         if self._on_change:
             self._on_change(idx, frame)
