@@ -226,7 +226,7 @@ class AnnotationManager:
             for rel_i, idx in enumerate(batch_idx):
                 ann = self._annotations.get(idx)
                 if ann is None:
-                    ann = FrameAnnotation(frame_index=idx)
+                    ann = FrameAnnotation(frame_index=idx, frame_path=self.extractor.frame_path(idx))
                     self._annotations[idx] = ann
                 ann.clear_boxes()
                 boxes = boxes_list[rel_i] if rel_i < len(boxes_list) else []

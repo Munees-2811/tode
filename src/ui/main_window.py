@@ -2,7 +2,7 @@
 import os
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 
 from core.annotation_manager import AnnotationManager
 from core.exporter import DatasetExporter
@@ -20,7 +20,7 @@ from ui.log_viewer import LogViewer
 from ui.segmentation_panel import SegmentationPanel
 from ui.source_dialog import SourceDialog
 from ui.video_player import VideoPlayer
-from utils.config import ACCENT, BG_DARK, BG_PANEL, TEXT_LIGHT
+from utils.config import ACCENT, BG_DARK, BG_PANEL
 from utils.logger import get_logger
 
 log = get_logger("ui.MainWindow")
@@ -111,58 +111,94 @@ class MainWindow(tk.Frame):
         self._bind_shortcuts()
 
     def _build_toolbar(self):
-        bar = tk.Frame(self, bg=BG_PANEL, height=44)
+        bar = tk.Frame(self, bg=BG_PANEL, height=46)
         bar.pack(fill=tk.X)
         bar.pack_propagate(False)
 
-        def btn(text, cmd, color=ACCENT):
+        def btn(parent, text, cmd, bg=ACCENT, hover="#9d8fff"):
             b = tk.Button(
-                bar, text=text, command=cmd,
-                bg=color, fg="white", relief=tk.FLAT,
-                padx=12, pady=6, font=("Consolas", 9, "bold"),
-                activebackground="#9d8fff", cursor="hand2",
+                parent, text=text, command=cmd,
+                bg=bg, fg="white", relief=tk.FLAT,
+                padx=11, pady=7,
+                font=("Consolas", 9, "bold"),
+                cursor="hand2",
+                activebackground=hover,
+                activeforeground="white",
+                bd=0,
             )
-            b.pack(side=tk.LEFT, padx=3, pady=6)
+            b.pack(side=tk.LEFT, padx=2, pady=6)
+            b.bind("<Enter>", lambda _e, b=b, h=hover: b.config(bg=h))
+            b.bind("<Leave>", lambda _e, b=b, c=bg:   b.config(bg=c))
             return b
 
-        btn("📂  Open",       self._open_source)
-        btn("🎬  Video",      self._open_video_direct)
-        btn("🖼  Image",      self._open_image_direct)
-        btn("💾  Save",       self._save,               color="#2d7a4e")
-        btn("⚡  YOLO Frame", self._run_yolo)
-        btn("🔁  YOLO All",   self._run_yolo_all,       color="#5a4fbf")
-        btn("📤  Export",    self._export_dataset,     color="#1f7a8c")
-        btn("📋  Logs",       self._show_logs,           color="#3a4a6a")
+        def sep():
+            tk.Frame(bar, bg="#3a3a5e", width=1).pack(
+                side=tk.LEFT, fill=tk.Y, pady=10, padx=3)
 
-        self._source_badge = tk.Label(
-            bar, text="  No source",
-            bg=BG_PANEL, fg="#666688",
+        btn(bar, "📂  Open",   self._open_source,    bg="#4a3a8a", hover="#7a6adf")
+        sep()
+        btn(bar, "💾  Save",   self._save,            bg="#2d7a4e", hover="#3da060")
+        btn(bar, "📤  Export", self._export_dataset,  bg="#1f7a8c", hover="#2a9aae")
+        sep()
+        btn(bar, "📋  Logs",   self._show_logs,       bg="#3a4a6a", hover="#4a5a7a")
+
+        self._badge_icon = tk.Label(
+            bar, text="  ●",
+            bg=BG_PANEL, fg="#444466",
+            font=("Consolas", 10),
+        )
+        self._badge_icon.pack(side=tk.RIGHT, padx=(0, 2))
+
+        self._badge_text = tk.Label(
+            bar, text="No source loaded  ",
+            bg=BG_PANEL, fg="#555577",
             font=("Consolas", 8, "italic"),
         )
-        self._source_badge.pack(side=tk.RIGHT, padx=10)
+        self._badge_text.pack(side=tk.RIGHT)
 
     def _build_status(self):
-        self.status_var = tk.StringVar(
-            value="No source loaded. Click 📂 Open or choose a source type."
-        )
-        bar = tk.Frame(self, bg=BG_PANEL, height=26)
+        bar = tk.Frame(self, bg="#1a1a2e", height=28)
         bar.pack(fill=tk.X, side=tk.BOTTOM)
         bar.pack_propagate(False)
+
+        self._mode_var = tk.StringVar(value="VIEW")
+        self._mode_chip = tk.Label(
+            bar, textvariable=self._mode_var,
+            bg=ACCENT, fg="white",
+            font=("Consolas", 8, "bold"),
+            padx=6, pady=2,
+        )
+        self._mode_chip.pack(side=tk.LEFT, padx=(8, 6), pady=4)
+
+        tk.Frame(bar, bg="#3a3a5e", width=1).pack(
+            side=tk.LEFT, fill=tk.Y, pady=4)
+
+        self.status_var = tk.StringVar(
+            value="No source loaded. Click 📂 Open to begin."
+        )
         tk.Label(
             bar, textvariable=self.status_var,
-            bg=BG_PANEL, fg=TEXT_LIGHT, font=("Consolas", 9),
+            bg="#1a1a2e", fg="#aaaacc",
+            font=("Consolas", 8),
         ).pack(side=tk.LEFT, padx=10)
+
+        self._ann_count_var = tk.StringVar(value="")
+        tk.Label(
+            bar, textvariable=self._ann_count_var,
+            bg="#1a1a2e", fg="#55cc77",
+            font=("Consolas", 8),
+        ).pack(side=tk.RIGHT, padx=12)
 
     def _build_progress(self):
         from tkinter import ttk
-        pf = tk.Frame(self, bg=BG_PANEL, height=6)
+        pf = tk.Frame(self, bg=BG_PANEL, height=4)
         pf.pack(fill=tk.X, side=tk.BOTTOM)
         pf.pack_propagate(False)
         style = ttk.Style()
         style.theme_use("default")
         style.configure(
             "App.Horizontal.TProgressbar",
-            troughcolor=BG_PANEL, background=ACCENT, thickness=6,
+            troughcolor=BG_PANEL, background=ACCENT, thickness=4,
         )
         self._progress = ttk.Progressbar(
             pf, mode="indeterminate",
@@ -172,42 +208,26 @@ class MainWindow(tk.Frame):
 
     # ── keyboard shortcuts (labelImg-style) ───────────────────────────────────
     def _bind_shortcuts(self):
-        """
-        labelImg-style bindings. Bound at the root so they fire regardless
-        of which widget has focus.
-        """
         root = self.master
         mappings = {
-            # Navigation
-            "<Left>":         lambda _e: self._nav(-1),
-            "a":              lambda _e: self._nav(-1),
-            "A":              lambda _e: self._nav(-1),
-            "<Right>":        lambda _e: self._nav(+1),
-            "d":              lambda _e: self._nav(+1),
-            "D":              lambda _e: self._nav(+1),
-            "<Home>":         lambda _e: self._nav("first"),
-            "<End>":          lambda _e: self._nav("last"),
-            # Mode switching
-            "w":              lambda _e: self.player.set_draw_mode(),
-            "W":              lambda _e: self.player.set_draw_mode(),
-            "v":              lambda _e: self.player.set_view_mode(),
-            "V":              lambda _e: self.player.set_view_mode(),
-            "<Escape>":       lambda _e: self.player.set_view_mode(),
-            # Actions
-            "<Control-s>":    lambda _e: self._save(),
-            "<Control-S>":    lambda _e: self._save(),
-            "<Control-e>":    lambda _e: self._export_dataset(),
-            "<Control-E>":    lambda _e: self._export_dataset(),
-            "<Control-o>":    lambda _e: self._open_source(),
-            "<Control-O>":    lambda _e: self._open_source(),
-            "<Delete>":       lambda _e: self._clear_frame(),
-            # YOLO
-            "y":              lambda _e: self._run_yolo(),
-            "Y":              lambda _e: self._run_yolo(),
+            "<Left>":      lambda _e: self._nav(-1),
+            "a":           lambda _e: self._nav(-1),
+            "<Right>":     lambda _e: self._nav(+1),
+            "d":           lambda _e: self._nav(+1),
+            "<Home>":      lambda _e: self._nav("first"),
+            "<End>":       lambda _e: self._nav("last"),
+            "w":           lambda _e: self.player.set_draw_mode(),
+            "v":           lambda _e: self.player.set_view_mode(),
+            "<Escape>":    lambda _e: self.player.set_view_mode(),
+            "<Control-s>": lambda _e: self._save(),
+            "<Control-e>": lambda _e: self._export_dataset(),
+            "<Control-o>": lambda _e: self._open_source(),
+            "<Delete>":    lambda _e: self._clear_frame(),
+            "y":           lambda _e: self._run_yolo(),
         }
         for key, fn in mappings.items():
             root.bind(key, fn)
-        log.debug("Keyboard shortcuts bound (labelImg-style)")
+        log.debug("Keyboard shortcuts bound")
 
     def _nav(self, where):
         """Move slider — accepts -1, +1, 'first', 'last'."""
@@ -270,87 +290,6 @@ class MainWindow(tk.Frame):
         if dlg.result:
             self._load_from_result(dlg.result)
 
-    def _open_video_direct(self):
-        """Quick-open a video file."""
-        if self._busy:
-            return
-        path = filedialog.askopenfilename(
-            title="Open Video",
-            filetypes=[
-                ("Video files", "*.mp4 *.avi *.mov *.mkv *.webm *.flv"),
-                ("All files", "*.*"),
-            ],
-        )
-        if path:
-            self._load_from_result({"type": "video", "path": path, "step": 1})
-
-    def _open_image_direct(self):
-        """Quick-open a single image or image folder."""
-        if self._busy:
-            return
-
-        win = tk.Toplevel(self.master)
-        win.title("Open Image")
-        win.configure(bg=BG_DARK)
-        win.resizable(False, False)
-        win.grab_set()
-        win.focus_set()
-
-        result = {"type": None, "path": None}
-
-        tk.Label(
-            win, text="What do you want to open?",
-            bg=BG_DARK, fg=TEXT_LIGHT,
-            font=("Consolas", 11, "bold"),
-        ).pack(pady=(20, 10), padx=24)
-
-        def _pick_image():
-            path = filedialog.askopenfilename(
-                title="Select Image", parent=win,
-                filetypes=[
-                    ("Image files",
-                     "*.jpg *.jpeg *.png *.bmp *.tiff *.tif *.webp"),
-                    ("All files", "*.*"),
-                ],
-            )
-            if path:
-                result["type"] = "image"
-                result["path"] = path
-                win.destroy()
-
-        def _pick_folder():
-            path = filedialog.askdirectory(
-                title="Select Image Folder", parent=win
-            )
-            if path:
-                result["type"] = "image_folder"
-                result["path"] = path
-                win.destroy()
-
-        btn_cfg = dict(
-            bg=ACCENT, fg="white", relief=tk.FLAT,
-            padx=20, pady=10,
-            font=("Consolas", 10, "bold"),
-            cursor="hand2",
-        )
-        tk.Button(win, text="🖼   Single Image",
-                  command=_pick_image, **btn_cfg).pack(
-            fill=tk.X, padx=24, pady=4)
-        tk.Button(win, text="📂   Image Folder",
-                  command=_pick_folder, **btn_cfg).pack(
-            fill=tk.X, padx=24, pady=4)
-        tk.Button(win, text="Cancel",
-                  command=win.destroy,
-                  bg="#444455", fg="white", relief=tk.FLAT,
-                  padx=20, pady=8,
-                  font=("Consolas", 9),
-                  cursor="hand2").pack(pady=(4, 16), padx=24, fill=tk.X)
-
-        win.wait_window()
-
-        if result["path"]:
-            self._load_from_result(result)
-
     # ── unified loader dispatcher ─────────────────────────────────────────────
     def _load_from_result(self, result: dict):
         src_type = result["type"]
@@ -402,6 +341,7 @@ class MainWindow(tk.Frame):
                 f"| {mgr.loader.fps:.0f} fps  "
                 f"(frames extract in background — start annotating now)"
             )
+            self._refresh_ann_count()
 
         def _err(exc):
             messagebox.showerror("Video Load Error", str(exc))
@@ -474,6 +414,7 @@ class MainWindow(tk.Frame):
                 f"'{os.path.basename(path)}'  |  {len(indices)} {noun}"
             )
             log.info(f"Image source ready — {len(indices)} item(s)")
+            self._refresh_ann_count()
 
         def _err(exc):
             log.error(f"Image load error: {exc}", exc_info=True)
@@ -502,11 +443,17 @@ class MainWindow(tk.Frame):
 
     # ── mode change callback (panel swap) ─────────────────────────────────────
     def _on_mode_change(self, mode: str) -> None:
-        """Show the segmentation panel in polygon mode; bbox panel otherwise."""
+        self._mode_var.set(mode.upper())
+        if mode == "polygon":
+            self._mode_chip.config(bg="#2a9d5c")
+        elif mode == "draw":
+            self._mode_chip.config(bg="#e05c5c")
+        else:
+            self._mode_chip.config(bg=ACCENT)
+
         if mode == "polygon":
             self.ann_panel.pack_forget()
             self.seg_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 6), pady=6)
-            # seed class names from YOLO model if available
             if self.manager:
                 self.seg_panel.set_class_names(
                     list(self.manager.yolo.class_names.values())
@@ -539,7 +486,7 @@ class MainWindow(tk.Frame):
             ann.polygons, list(class_names.values())
         )
         self._set_status(
-            f"Polygon added to frame {idx} — '{cls_name}', "
+            f"Polygon added to frame {idx + 1} — '{cls_name}', "
             f"{len(points)} pts. Total: {len(ann.polygons)} polygon(s)."
         )
 
@@ -568,18 +515,24 @@ class MainWindow(tk.Frame):
         self.seg_panel.update_polygons(
             ann.polygons, list(self.manager.yolo.class_names.values())
         )
-        self._set_status(f"Deleted polygon [{poly_index}] from frame {idx}.")
+        self._set_status(f"Deleted polygon [{poly_index}] from frame {idx + 1}.")
 
     def _clear_seg_frame(self) -> None:
-        """Clear all polygons on the current frame."""
         if not self._require_manager():
             return
         idx = self.player.current_frame_index
+        ann = self.manager.get_annotation(idx)
+        if ann and ann.polygons:
+            if not messagebox.askyesno(
+                "Clear polygons",
+                f"Remove all {len(ann.polygons)} polygon(s) on this frame?",
+            ):
+                return
         self.manager.clear_polygons(idx)
         ann = self.manager.get_annotation(idx)
         self.player.set_overlay_polygons(ann.polygons)
         self.seg_panel.update_polygons([], [])
-        self._set_status(f"Cleared all polygons on frame {idx}.")
+        self._set_status(f"Cleared all polygons on frame {idx + 1}.")
 
     def _sync_color_map(self) -> None:
         """Push current class→colour mapping into the canvas."""
@@ -622,9 +575,10 @@ class MainWindow(tk.Frame):
             else "frame"
         )
         self._set_status(
-            f"Manual box added — '{cls_name}' on {src_label} {idx}. "
+            f"Manual box added — '{cls_name}' on {src_label} {idx + 1}. "
             f"Total: {len(ann.boxes)} box(es)."
         )
+        self._refresh_ann_count()
 
     # ── box edit / select callbacks ───────────────────────────────────────────
     def _on_box_edited(self, box_index: int,
@@ -665,7 +619,8 @@ class MainWindow(tk.Frame):
         ann = self.manager.get_annotation(idx)
         self.player.set_overlay_boxes(ann.boxes)
         self.ann_panel.update_boxes(ann.boxes, self.manager.yolo.class_names)
-        self._set_status(f"Deleted box [{box_index}] from index {idx}.")
+        self._set_status(f"Deleted box [{box_index}] from index {idx + 1}.")
+        self._refresh_ann_count()
 
     # ── confidence change ─────────────────────────────────────────────────────
     def _on_conf_change(self, val: float):
@@ -705,7 +660,7 @@ class MainWindow(tk.Frame):
         conf       = self.ann_panel.get_confidence_threshold()
         cls_filter = self.ann_panel.get_class_filter()
         self.manager.yolo.confidence = conf
-        self._set_status(f"Running YOLO on index {idx}…")
+        self._set_status(f"Running YOLO on index {idx + 1}…")
         log.info(f"YOLO single — idx={idx}, conf={conf}, filter={cls_filter}")
 
         def _work():
@@ -724,8 +679,9 @@ class MainWindow(tk.Frame):
                 ann.boxes, self.manager.yolo.class_names
             )
             self._set_status(
-                f"YOLO: {len(ann.boxes)} object(s) at index {idx}."
+                f"YOLO: {len(ann.boxes)} object(s) at index {idx + 1}."
             )
+            self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)
 
@@ -737,7 +693,20 @@ class MainWindow(tk.Frame):
         conf       = self.ann_panel.get_confidence_threshold()
         cls_filter = self.ann_panel.get_class_filter()
         self.manager.yolo.confidence = conf
-        self._set_status("Running YOLO on all…")
+
+        manual_count = sum(
+            1 for ann in self.manager._annotations.values()
+            if ann and ann.boxes and any(b.confidence >= 1.0 for b in ann.boxes)
+        )
+        if manual_count > 0:
+            if not messagebox.askyesno(
+                "Overwrite manual annotations?",
+                f"{manual_count} frame(s) have manual annotations.\n"
+                "YOLO All will add detections on top of those.\nContinue?",
+            ):
+                return
+
+        self._set_status("Running YOLO on all frames…")
         log.info(f"YOLO all — conf={conf}, filter={cls_filter}")
 
         def _progress(done, tot):
@@ -757,9 +726,8 @@ class MainWindow(tk.Frame):
             return self.manager.annotated_count
 
         def _done(count):
-            self._set_status(
-                f"YOLO complete — {count}/{total} annotated."
-            )
+            self._set_status(f"YOLO complete — {count}/{total} annotated.")
+            self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)
 
@@ -775,6 +743,7 @@ class MainWindow(tk.Frame):
 
         def _done(count):
             self._set_status(f"Saved {count} annotation file(s).")
+            self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)
 
@@ -846,10 +815,18 @@ class MainWindow(tk.Frame):
         if not self._require_manager():
             return
         idx = self.player.current_frame_index
+        ann = self.manager.get_annotation(idx)
+        if ann and ann.boxes:
+            if not messagebox.askyesno(
+                "Clear frame",
+                f"Remove all {len(ann.boxes)} box(es) on this frame?",
+            ):
+                return
         self.manager.clear_frame(idx)
         self.player.set_overlay_boxes([])
         self.ann_panel.update_boxes([], {})
-        self._set_status(f"Cleared annotations for index {idx}.")
+        self._set_status(f"Cleared annotations for index {idx + 1}.")
+        self._refresh_ann_count()
 
     # ── log viewer ────────────────────────────────────────────────────────────
     def _show_logs(self):
@@ -880,9 +857,23 @@ class MainWindow(tk.Frame):
         log.info(f"[STATUS] {msg}")
         self.update_idletasks()
 
+    def _refresh_ann_count(self):
+        if self.manager is None:
+            self._ann_count_var.set("")
+            return
+        ann = self.manager.annotated_count
+        tot = self.manager.total_count
+        self._ann_count_var.set(f"✔ {ann}/{tot} annotated")
+
     def _update_badge(self, src_type: str):
-        label = _SOURCE_LABELS.get(src_type, src_type)
-        self._source_badge.config(text=f"  Source: {label}  ")
+        _SOURCE_LABELS = {
+            "video":        ("🎬", "Video",        "#6a4fbf"),
+            "image":        ("🖼", "Image",         "#2d7a4e"),
+            "image_folder": ("📂", "Image Folder", "#1f7a8c"),
+        }
+        icon, label, color = _SOURCE_LABELS.get(src_type, ("●", src_type, ACCENT))
+        self._badge_icon.config(text=f"  {icon}", fg=color)
+        self._badge_text.config(text=f"{label}  ", fg="#ccccee")
 
     def setup_drag_drop(self):
         _VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"}
