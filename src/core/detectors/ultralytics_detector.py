@@ -8,7 +8,7 @@ inherits that obligation.  For closed-source or SaaS deployments use
 ONNXDetector instead — it carries no AGPL surface.
 """
 import os
-import re
+#import re
 
 import numpy as np
 
