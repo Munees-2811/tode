@@ -108,6 +108,11 @@ class YOLOAnnotator:
                 self._detector.confidence = self._confidence
                 self._detector.iou        = self._iou
 
+            # Clear cached seg model so it re-loads for the new weights
+            if hasattr(self._detector, '_seg_model'):
+                self._detector._seg_model = None
+                self._detector._seg_model_path = ""
+
             self._model_path = path
 
         self._detector.load(path)
@@ -155,6 +160,32 @@ class YOLOAnnotator:
             f"[{self._detector.backend_name}]"
         )
         return boxes_list
+
+    def annotate_polygons_frame(self, bgr_frame) -> list:
+        self.load()
+        log.debug(
+            f"Running polygon segmentation — conf={self._confidence}, iou={self._iou}, "
+            f"backend={self._detector.backend_name}"
+        )
+        polys = self._detector.detect_polygons(bgr_frame)
+        log.info(
+            f"Polygon segmentation complete — {len(polys)} polygon(s)  "
+            f"[{self._detector.backend_name}]"
+        )
+        return polys
+
+    def annotate_polygons_frames(self, bgr_frames: list) -> list[list]:
+        self.load()
+        try:
+            polys_list = self._detector.detect_polygons_batch(bgr_frames)
+        except Exception:
+            polys_list = [self._detector.detect_polygons(f) if f is not None else [] for f in bgr_frames]
+        total = sum(len(p) for p in polys_list)
+        log.info(
+            f"Batched polygon segmentation complete — {total} polygon(s)  "
+            f"[{self._detector.backend_name}]"
+        )
+        return polys_list
 
     # ── metadata ──────────────────────────────────────────────────────────────
     @property

@@ -43,6 +43,52 @@ class PolygonAnnotation:
     points:     list[tuple[float, float]]   # ordered vertices, normalised
     confidence: float = 1.0
 
+    def area(self, img_w: int = 1, img_h: int = 1) -> float:
+        """Calculate area of polygon in pixels (or normalized if img_w=1, img_h=1)."""
+        pts = [(x * img_w, y * img_h) for x, y in self.points]
+        n = len(pts)
+        if n < 3:
+            return 0.0
+        area = 0.0
+        for i in range(n):
+            j = (i + 1) % n
+            area += pts[i][0] * pts[j][1]
+            area -= pts[j][0] * pts[i][1]
+        return abs(area) / 2.0
+
+    def perimeter(self, img_w: int = 1, img_h: int = 1) -> float:
+        """Calculate perimeter of polygon in pixels (or normalized if img_w=1, img_h=1)."""
+        pts = [(x * img_w, y * img_h) for x, y in self.points]
+        n = len(pts)
+        if n < 2:
+            return 0.0
+        perim = 0.0
+        for i in range(n):
+            j = (i + 1) % n
+            dx = pts[j][0] - pts[i][0]
+            dy = pts[j][1] - pts[i][1]
+            perim += (dx * dx + dy * dy) ** 0.5
+        return perim
+
+    def contains_point(self, norm_x: float, norm_y: float) -> bool:
+        """Ray-casting algorithm to test if point (norm_x, norm_y) is inside polygon."""
+        n = len(self.points)
+        if n < 3:
+            return False
+        inside = False
+        p1x, p1y = self.points[0]
+        for i in range(n + 1):
+            p2x, p2y = self.points[i % n]
+            if norm_y > min(p1y, p2y):
+                if norm_y <= max(p1y, p2y):
+                    if norm_x <= max(p1x, p2x):
+                        if p1y != p2y:
+                            xinters = (norm_y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                        if p1x == p2x or norm_x <= xinters:
+                            inside = not inside
+            p1x, p1y = p2x, p2y
+        return inside
+
     def to_yolo_seg_line(self) -> str:
         pts = " ".join(f"{x:.6f} {y:.6f}" for x, y in self.points)
         return f"{self.class_id} {pts}"

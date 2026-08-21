@@ -96,12 +96,14 @@ class MainWindow(tk.Frame):
         self._class_color_map: dict[str, str] = {}
         self.seg_panel = SegmentationPanel(
             content,
-            on_save_click     = self._save,
-            on_clear_click    = self._clear_seg_frame,
-            on_delete_poly    = self._delete_polygon,
-            on_poly_select    = self._on_poly_selected,
-            on_class_changed  = self._on_seg_class_changed,
-            on_opacity_change = self._on_seg_opacity_changed,
+            on_save_click         = self._save,
+            on_clear_click        = self._clear_seg_frame,
+            on_delete_poly        = self._delete_polygon,
+            on_poly_select        = self._on_poly_selected,
+            on_class_changed      = self._on_seg_class_changed,
+            on_opacity_change     = self._on_seg_opacity_changed,
+            on_auto_seg_click     = self._run_yolo_seg,
+            on_auto_seg_all_click = self._run_yolo_seg_all,
         )
         # seg_panel is shown/hidden by the polygon mode button in video_player
         self.seg_panel.pack_forget()
@@ -223,11 +225,17 @@ class MainWindow(tk.Frame):
             "<Control-e>": lambda _e: self._export_dataset(),
             "<Control-o>": lambda _e: self._open_source(),
             "<Delete>":    lambda _e: self._clear_frame(),
-            "y":           lambda _e: self._run_yolo(),
+            "y":           lambda _e: self._handle_y_key(),
         }
         for key, fn in mappings.items():
             root.bind(key, fn)
         log.debug("Keyboard shortcuts bound")
+
+    def _handle_y_key(self):
+        if self.player.is_polygon_mode() or self.player.is_magic_wand_mode():
+            self._run_yolo_seg()
+        else:
+            self._run_yolo()
 
     def _nav(self, where):
         """Move slider — accepts -1, +1, 'first', 'last'."""
@@ -257,11 +265,18 @@ class MainWindow(tk.Frame):
         self._busy = True
         self._show_progress()
 
+        def _safe_done(res):
+            try:
+                if done_fn:
+                    done_fn(res)
+            except Exception as exc:
+                log.error(f"UI update callback error: {exc}", exc_info=True)
+                messagebox.showerror("UI Error", f"Failed to update UI:\n{exc}")
+
         def _worker():
             try:
                 result = task_fn()
-                if done_fn:
-                    self.after(0, lambda r=result: done_fn(r))
+                self.after(0, lambda r=result: _safe_done(r))
             except Exception as exc:
                 # FIX: Python 3.13 lambda scoping bug — capture exc explicitly
                 _exc = exc
@@ -727,6 +742,88 @@ class MainWindow(tk.Frame):
 
         def _done(count):
             self._set_status(f"YOLO complete — {count}/{total} annotated.")
+            self._refresh_ann_count()
+
+        self._run_in_thread(_work, _done)
+
+    # ── YOLO polygon single frame ─────────────────────────────────────────────
+    def _run_yolo_seg(self):
+        if not self._require_manager() or self._busy:
+            return
+        idx = self.player.current_frame_index
+        conf = self.ann_panel.get_confidence_threshold()
+        cls_filter = self.ann_panel.get_class_filter()
+        selected_model = self.seg_panel.get_model_name()
+        if selected_model and self.manager.yolo.model_path != selected_model:
+            log.info(f"Switching segmentation model to: {selected_model}")
+            self.manager.yolo.reload(selected_model)
+        self.manager.yolo.confidence = conf
+        self._set_status(f"Running YOLO auto polygon segmentation on index {idx + 1}…")
+        log.info(f"YOLO seg single — idx={idx}, model={selected_model}, conf={conf}, filter={cls_filter}")
+
+        def _work():
+            ann = self.manager.auto_annotate_polygons_frame(idx)
+            if cls_filter:
+                ann.polygons = [
+                    p for p in ann.polygons
+                    if p.class_name.lower() in cls_filter
+                ]
+                ann.is_annotated = bool(ann.polygons)
+            return ann
+
+        def _done(ann):
+            self.player.set_overlay_polygons(ann.polygons)
+            self.seg_panel.update_polygons(
+                ann.polygons, list(self.manager.yolo.class_names.values())
+            )
+            self._set_status(
+                f"YOLO Seg: {len(ann.polygons)} polygon(s) auto-generated at index {idx + 1}."
+            )
+            self._refresh_ann_count()
+
+        self._run_in_thread(_work, _done)
+
+    # ── YOLO polygon all frames ───────────────────────────────────────────────
+    def _run_yolo_seg_all(self):
+        if not self._require_manager() or self._busy:
+            return
+        total = self.manager.total_count
+        conf  = self.ann_panel.get_confidence_threshold()
+        cls_filter = self.ann_panel.get_class_filter()
+        selected_model = self.seg_panel.get_model_name()
+        if selected_model and self.manager.yolo.model_path != selected_model:
+            log.info(f"Switching segmentation model to: {selected_model}")
+            self.manager.yolo.reload(selected_model)
+        self.manager.yolo.confidence = conf
+
+        self._set_status("Running YOLO polygon segmentation on all frames…")
+        log.info(f"YOLO seg all — model={selected_model}, conf={conf}, filter={cls_filter}")
+
+        def _progress(done, tot):
+            self.after(0, lambda d=done, t=tot: self._set_status(
+                f"YOLO polygon annotating… {d}/{t}"
+            ))
+
+        def _work():
+            self.manager.auto_annotate_polygons_all(progress_callback=_progress)
+            if cls_filter:
+                for ann in self.manager._annotations.values():
+                    ann.polygons = [
+                        p for p in ann.polygons
+                        if p.class_name.lower() in cls_filter
+                    ]
+                    ann.is_annotated = bool(ann.polygons)
+            return self.manager.annotated_count
+
+        def _done(count):
+            idx = self.player.current_frame_index
+            ann = self.manager.get_annotation(idx)
+            if ann:
+                self.player.set_overlay_polygons(ann.polygons)
+                self.seg_panel.update_polygons(
+                    ann.polygons, list(self.manager.yolo.class_names.values())
+                )
+            self._set_status(f"YOLO polygon auto-annotation complete — {count}/{total} annotated.")
             self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)

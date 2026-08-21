@@ -15,10 +15,17 @@ Features added (on top of the original polygon list):
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import colorchooser, messagebox, simpledialog, ttk
+from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 
 from models.annotation_model import PolygonAnnotation
-from utils.config import ACCENT, BG_DARK, BG_PANEL, TEXT_LIGHT
+from utils.config import (
+    ACCENT,
+    BG_DARK,
+    BG_PANEL,
+    TEXT_LIGHT,
+    YOLO_DEFAULT_SEG_MODEL,
+    YOLO_SEG_MODELS,
+)
 
 
 def _hover_btn(btn, normal, hover):
@@ -45,17 +52,21 @@ class SegmentationPanel(tk.Frame):
         on_poly_select(index: int | None)
         on_class_changed(class_name: str, color: str)
         on_opacity_change(value: float)   # 0.0 – 1.0
+        on_model_change(model_name: str)
     """
 
     def __init__(
         self,
         master,
-        on_save_click:    Callable = None,
-        on_clear_click:   Callable = None,
-        on_delete_poly:   Callable = None,
-        on_poly_select:   Callable = None,
-        on_class_changed: Callable = None,
-        on_opacity_change: Callable = None,
+        on_save_click:         Callable = None,
+        on_clear_click:        Callable = None,
+        on_delete_poly:        Callable = None,
+        on_poly_select:        Callable = None,
+        on_class_changed:      Callable = None,
+        on_opacity_change:     Callable = None,
+        on_model_change:       Callable = None,
+        on_auto_seg_click:     Callable = None,
+        on_auto_seg_all_click: Callable = None,
     ) -> None:
         super().__init__(master, bg=BG_PANEL, width=280)
         self.pack_propagate(False)
@@ -66,6 +77,9 @@ class SegmentationPanel(tk.Frame):
         self._on_poly_select   = on_poly_select
         self._on_class_changed = on_class_changed
         self._on_opacity       = on_opacity_change
+        self._on_model_change  = on_model_change
+        self._on_auto_seg      = on_auto_seg_click
+        self._on_auto_seg_all  = on_auto_seg_all_click
 
         # semantic class list: [{name, color}, …]
         self._classes: list[dict] = []
@@ -115,6 +129,33 @@ class SegmentationPanel(tk.Frame):
         )
 
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=4)
+
+        # ── Model Selection for Auto Polygon ──────────────────────────────
+        tk.Label(
+            self, text="MODEL",
+            bg=BG_PANEL, fg="#888899", font=("Consolas", 7, "bold"),
+        ).pack(pady=(2, 2))
+
+        model_row = tk.Frame(self, bg=BG_PANEL)
+        model_row.pack(fill=tk.X, padx=8, pady=(0, 4))
+
+        self.model_var = tk.StringVar(value=YOLO_DEFAULT_SEG_MODEL)
+        self._model_combo = ttk.Combobox(
+            model_row, textvariable=self.model_var,
+            values=YOLO_SEG_MODELS, font=("Consolas", 8), state="readonly", width=14,
+        )
+        self._model_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=2)
+        self._model_combo.bind("<<ComboboxSelected>>", lambda _e: self._on_model_selected())
+
+        browse_btn = tk.Button(
+            model_row, text="📂",
+            command=self._browse_model,
+            bg=BG_DARK, fg=TEXT_LIGHT, relief=tk.FLAT,
+            padx=5, font=("Consolas", 9), cursor="hand2",
+            activebackground=ACCENT, activeforeground="white", bd=0,
+        )
+        browse_btn.pack(side=tk.LEFT, padx=(4, 0))
+        _hover_btn(browse_btn, BG_DARK, ACCENT)
 
         op_row = tk.Frame(self, bg=BG_PANEL)
         op_row.pack(fill=tk.X, **pad)
@@ -225,11 +266,34 @@ class SegmentationPanel(tk.Frame):
 
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=(6, 4))
 
+        auto_row = tk.Frame(self, bg=BG_PANEL)
+        auto_row.pack(fill=tk.X, padx=8, pady=2)
+
+        auto_btn = tk.Button(
+            auto_row, text="⚡ Auto Polygon",
+            command=lambda: self._on_auto_seg and self._on_auto_seg(),
+            bg=ACCENT, fg="white", relief=tk.FLAT,
+            padx=6, pady=5, font=("Consolas", 8, "bold"), cursor="hand2",
+            activebackground="#9d8fff", activeforeground="white", bd=0,
+        )
+        auto_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
+        _hover_btn(auto_btn, ACCENT, "#9d8fff")
+
+        auto_all_btn = tk.Button(
+            auto_row, text="⚡ Auto All",
+            command=lambda: self._on_auto_seg_all and self._on_auto_seg_all(),
+            bg="#4a3a8a", fg="white", relief=tk.FLAT,
+            padx=6, pady=5, font=("Consolas", 8, "bold"), cursor="hand2",
+            activebackground="#6a5aaf", activeforeground="white", bd=0,
+        )
+        auto_all_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(2, 0))
+        _hover_btn(auto_all_btn, "#4a3a8a", "#6a5aaf")
+
         save_btn = tk.Button(
             self, text="💾  Save Annotations",
             command=lambda: self._on_save and self._on_save(),
             bg="#2d8a4e", fg="white", relief=tk.FLAT,
-            padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
+            padx=8, pady=6, font=("Consolas", 9, "bold"), cursor="hand2",
             activebackground="#3da060", activeforeground="white", bd=0,
         )
         save_btn.pack(fill=tk.X, padx=8, pady=2)
@@ -239,7 +303,7 @@ class SegmentationPanel(tk.Frame):
             self, text="🗑  Clear Frame Polygons",
             command=lambda: self._on_clear and self._on_clear(),
             bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
+            padx=8, pady=6, font=("Consolas", 9, "bold"), cursor="hand2",
             activebackground="#a04040", activeforeground="white", bd=0,
         )
         clear_btn.pack(fill=tk.X, padx=8, pady=(2, 8))
@@ -260,6 +324,7 @@ class SegmentationPanel(tk.Frame):
         self,
         polygons: list[PolygonAnnotation],
         class_names: list[str],
+        *args,
     ) -> None:
         """Refresh polygon list. Also syncs class combo values."""
         # merge any unseen class names into our class list
@@ -305,6 +370,12 @@ class SegmentationPanel(tk.Frame):
     def get_opacity(self) -> float:
         return self._opacity_var.get()
 
+    def get_model_name(self) -> str:
+        return self.model_var.get()
+
+    def set_model_name(self, name: str) -> None:
+        self.model_var.set(name)
+
     def set_class_names(self, names: list[str]) -> None:
         """Bulk-load class names (e.g. from YOLO model)."""
         existing = {c["name"] for c in self._classes}
@@ -313,6 +384,31 @@ class SegmentationPanel(tk.Frame):
                 color = _PALETTE[len(self._classes) % len(_PALETTE)]
                 self._add_class(name=name, color=color, notify=False)
                 existing.add(name)
+
+    # ── model callbacks ────────────────────────────────────────────────────
+
+    def _on_model_selected(self) -> None:
+        if self._on_model_change:
+            self._on_model_change(self.model_var.get())
+
+    def _browse_model(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select model weights",
+            filetypes=[
+                ("Model weights", "*.pt *.onnx"),
+                ("PyTorch (Ultralytics/AGPL)", "*.pt"),
+                ("ONNX (AGPL-free)", "*.onnx"),
+                ("All files", "*.*"),
+            ],
+            parent=self,
+        )
+        if path:
+            self.model_var.set(path)
+            current = list(self._model_combo["values"])
+            if path not in current:
+                self._model_combo["values"] = [path] + current
+            if self._on_model_change:
+                self._on_model_change(path)
 
     # ── class management ───────────────────────────────────────────────────
 

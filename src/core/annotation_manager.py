@@ -156,6 +156,26 @@ class AnnotationManager:
         )
         return ann
 
+    def auto_annotate_polygons_frame(self, frame_index: int) -> FrameAnnotation:
+        log.debug(f"Auto-annotating polygons on frame {frame_index}")
+        ann = self._annotations.get(frame_index)
+        if ann is None:
+            frame, saved_path = self.extractor.extract_single(frame_index)
+            ann = FrameAnnotation(frame_index=frame_index, frame_path=saved_path)
+            self._annotations[frame_index] = ann
+        else:
+            frame = self._read_frame_reliable(ann, frame_index)
+
+        ann.clear_polygons()
+        if frame is None:
+            log.warning(f"Frame {frame_index} could not be read — skipping polygon auto-annotation")
+        else:
+            polys = self.yolo.annotate_polygons_frame(frame)
+            for poly in polys:
+                ann.add_polygon(poly)
+        log.info(f"Frame {frame_index} auto-annotated polygons — {len(ann.polygons)} polygon(s)")
+        return ann
+
     def _read_frame_reliable(self, ann: FrameAnnotation, frame_index: int):
         """
         Prefer the saved frame on disk over re-seeking the source video.
@@ -243,6 +263,44 @@ class AnnotationManager:
             f"Bulk annotation complete — "
             f"{self.annotated_count}/{self.total_count} annotated"
         )
+
+    def auto_annotate_polygons_all(self, progress_callback=None):
+        indices = self.all_frame_indices()
+        total = len(indices)
+        log.info(f"Auto-annotating polygons on all {total} frames (batched)…")
+
+        batch_size = 8
+        for bstart in range(0, total, batch_size):
+            batch_idx = indices[bstart:bstart + batch_size]
+            frames = []
+            for idx in batch_idx:
+                ann = self._annotations.get(idx)
+                if ann is None:
+                    frame, saved_path = self.extractor.extract_single(idx)
+                    ann = FrameAnnotation(frame_index=idx, frame_path=saved_path)
+                    self._annotations[idx] = ann
+                    frames.append(frame)
+                else:
+                    frame = self._read_frame_reliable(ann, idx)
+                    frames.append(frame)
+
+            polys_list = self.yolo.annotate_polygons_frames(frames)
+
+            for rel_i, idx in enumerate(batch_idx):
+                ann = self._annotations.get(idx)
+                if ann is None:
+                    ann = FrameAnnotation(frame_index=idx, frame_path=self.extractor.frame_path(idx))
+                    self._annotations[idx] = ann
+                ann.clear_polygons()
+                polys = polys_list[rel_i] if rel_i < len(polys_list) else []
+                for poly in polys:
+                    ann.add_polygon(poly)
+                ann._refresh_annotated()
+
+            if progress_callback:
+                progress_callback(min(bstart + batch_size, total), total)
+
+        log.info(f"Bulk polygon auto-annotation complete — {self.annotated_count}/{self.total_count} annotated")
 
     def add_box(self, frame_index: int, box: BoundingBox):
         ann = self._annotations.get(frame_index)
