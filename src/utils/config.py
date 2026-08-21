@@ -46,6 +46,19 @@ YOLO_MODELS = (
 )
 YOLO_DEFAULT_MODEL = "yolo26x"
 
+# Dedicated Segmentation Models catalogue (used specifically for Auto Polygon Segmentation)
+_ULTRALYTICS_SEG_MODELS = [
+    "yolo11n-seg", "yolo11s-seg", "yolo11m-seg", "yolo11l-seg", "yolo11x-seg",
+    "yolov8n-seg", "yolov8s-seg", "yolov8m-seg", "yolov8l-seg", "yolov8x-seg",
+    "yolo26n-seg", "yolo26s-seg", "yolo26m-seg", "yolo26l-seg", "yolo26x-seg",
+]
+
+YOLO_SEG_MODELS = (
+    [m for m in _TODE_MODELS if os.path.isfile(m) and "-seg" in m]
+    + _ULTRALYTICS_SEG_MODELS
+)
+YOLO_DEFAULT_SEG_MODEL = "yolo11n-seg"
+
 # ── Inference defaults ────────────────────────────────────────────────────────
 YOLO_CONFIDENCE    = 0.45
 YOLO_IOU_THRESHOLD = 0.45
