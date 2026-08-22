@@ -69,7 +69,7 @@ class ExportDialog(tk.Toplevel):
             w = self.winfo_width() or 580
             h = self.winfo_height() or 640
             self.geometry(f"{w}x{h}+{max(0, mw - w // 2)}+{max(0, mh - h // 2)}")
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ class ExportDialog(tk.Toplevel):
             tr, va, te = 70.0, 20.0, 10.0
             total_pct = 100.0
 
-        r_tr, r_va, r_te = tr / total_pct, va / total_pct, te / total_pct
+        r_tr, r_va = tr / total_pct, va / total_pct
 
         total = self.total_annotated
         n_tr = int(round(total * r_tr))

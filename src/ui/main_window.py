@@ -742,7 +742,6 @@ class MainWindow(tk.Frame):
     def _run_yolo_all(self):
         if not self._require_manager() or self._busy:
             return
-        total      = self.manager.total_count
         conf       = self.ann_panel.get_confidence_threshold()
         cls_filter = self.ann_panel.get_class_filter()
         self.manager.yolo.confidence = conf
@@ -767,7 +766,7 @@ class MainWindow(tk.Frame):
 
         def _done(count):
             self._refresh_current_frame_overlays()
-            self._set_status(f"YOLO AI suggestions generated across all frames. Review & verify.")
+            self._set_status("YOLO AI suggestions generated across all frames. Review & verify.")
             self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)
@@ -809,7 +808,6 @@ class MainWindow(tk.Frame):
     def _run_yolo_seg_all(self):
         if not self._require_manager() or self._busy:
             return
-        total = self.manager.total_count
         conf  = self.ann_panel.get_confidence_threshold()
         cls_filter = self.ann_panel.get_class_filter()
         selected_model = self.seg_panel.get_model_name()
@@ -838,7 +836,7 @@ class MainWindow(tk.Frame):
 
         def _done(count):
             self._refresh_current_frame_overlays()
-            self._set_status(f"YOLO polygon AI suggestions complete. Review and verify.")
+            self._set_status("YOLO polygon AI suggestions complete. Review and verify.")
             self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)

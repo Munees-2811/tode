@@ -106,9 +106,9 @@ class DatasetExporter:
 
         ordered_anns = sorted(annotated, key=lambda a: a.frame_index)
         if use_random_seed or seed is None:
-            rnd = random.Random()
+            rnd = random.Random()  # nosec B311
         else:
-            rnd = random.Random(int(seed))
+            rnd = random.Random(int(seed))  # nosec B311
 
         shuffled_anns = list(ordered_anns)
         rnd.shuffle(shuffled_anns)
@@ -124,7 +124,6 @@ class DatasetExporter:
 
         n_train = int(round(total * train_ratio))
         n_val   = int(round(total * val_ratio))
-        n_test  = max(0, total - n_train - n_val)
 
         splits = {
             "train": shuffled_anns[:n_train],
@@ -185,9 +184,9 @@ class DatasetExporter:
                     f.write(f"  {cid}: {name}\n")
 
         log.info(
-            f"YOLO split dataset complete — total: {total} "
+            f"YOLO split dataset complete - total: {total} "
             f"(train: {len(splits['train'])}, val: {len(splits['val'])}, test: {len(splits['test'])}) "
-            f"→ {self.output_dir}"
+            f"-> {self.output_dir}"
         )
         return {
             "format":        "yolo_split",
@@ -263,8 +262,8 @@ class DatasetExporter:
                     f.write(f"  {cid}: {name}\n")
 
         log.info(
-            f"YOLO export complete — {total} images, "
-            f"{len(ordered_names)} classes → {self.output_dir}"
+            f"YOLO export complete - {total} images, "
+            f"{len(ordered_names)} classes -> {self.output_dir}"
         )
         return {
             "format":     "yolo",
@@ -359,9 +358,9 @@ class DatasetExporter:
             json.dump(coco, f, indent=2)
 
         log.info(
-            f"COCO export complete — {len(images_json)} images, "
+            f"COCO export complete - {len(images_json)} images, "
             f"{len(anns_json)} annotations, {len(categories)} categories "
-            f"→ {self.output_dir}"
+            f"-> {self.output_dir}"
         )
         return {
             "format":     "coco",

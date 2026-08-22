@@ -3,15 +3,16 @@ Unit tests for AI-Assisted Annotation workflow:
 YOLO Detection → AI Suggestions → Human Verify (Accept, Edit, Delete, Accept All, Reject All, Confidence Threshold) → Final Annotation
 """
 import os
+from unittest.mock import MagicMock
+
 import cv2
 import numpy as np
 import pytest
-from unittest.mock import MagicMock
 
-from models.annotation_model import BoundingBox, PolygonAnnotation, FrameAnnotation
 from core.annotation_manager import AnnotationManager
-from storage.label_storage import LabelStorage
 from core.exporter import DatasetExporter
+from models.annotation_model import BoundingBox, FrameAnnotation, PolygonAnnotation
+from storage.label_storage import LabelStorage
 
 
 class TestAISuggestionModel:
@@ -128,7 +129,7 @@ class TestAnnotationManagerSuggestions:
         frame_file = str(tmp_path / "frame_000000.png")
         f_extract.frame_path.return_value = frame_file
         f_extract.extract_single.return_value = (dummy_frame, frame_file)
-        
+
         yolo       = MagicMock()
         b1 = BoundingBox(0, "person", 0.5, 0.5, 0.2, 0.2, confidence=0.88)
         yolo.annotate_frame.return_value = [b1]
@@ -244,17 +245,17 @@ class TestStorageAndExporterIgnoresSuggestions:
         label_dir = os.path.join(out_dir, "labels")
         if not os.path.exists(label_dir):
             label_dir = out_dir
-        
+
         exported_txts = []
         for root, _, files in os.walk(label_dir):
             for f in files:
                 if f.endswith(".txt") and f != "classes.txt":
                     exported_txts.append(os.path.join(root, f))
-        
+
         assert len(exported_txts) == 1
         with open(exported_txts[0]) as f:
             lines = f.readlines()
-        
+
         # Only the confirmed box "car" should be present (class_id 1)
         assert len(lines) == 1
         assert lines[0].startswith("1 ")

@@ -4,9 +4,9 @@ tests/test_dataset_split.py
 Unit tests for automatic Train / Validation / Test dataset split export.
 """
 import os
-import shutil
-import yaml
+
 import pytest
+import yaml
 
 from core.exporter import DatasetExporter
 from models.annotation_model import BoundingBox, FrameAnnotation, PolygonAnnotation
@@ -79,7 +79,7 @@ def test_dataset_split_ratios_and_structure(tmp_path, mock_dataset):
     assert not os.path.exists(os.path.join(out_dir, "data.yaml"))
 
     # When export_yaml=True, data.yaml is created
-    res_yaml = exporter.export(
+    exporter.export(
         fmt="yolo_split",
         split=True,
         export_yaml=True,
@@ -103,7 +103,7 @@ def test_dataset_split_no_duplicate_or_omitted_images(tmp_path, mock_dataset):
     out_dir = str(tmp_path / "dataset_export_unique")
 
     exporter = DatasetExporter(annotations, class_names, out_dir)
-    res = exporter.export(
+    exporter.export(
         fmt="yolo_split",
         train_ratio=0.70,
         val_ratio=0.20,
@@ -128,10 +128,10 @@ def test_dataset_split_reproducible_seed(tmp_path, mock_dataset):
     out_dir2 = str(tmp_path / "export_seed_2")
 
     exp1 = DatasetExporter(annotations, class_names, out_dir1)
-    res1 = exp1.export(fmt="yolo_split", seed=99, use_random_seed=False)
+    exp1.export(fmt="yolo_split", seed=99, use_random_seed=False)
 
     exp2 = DatasetExporter(annotations, class_names, out_dir2)
-    res2 = exp2.export(fmt="yolo_split", seed=99, use_random_seed=False)
+    exp2.export(fmt="yolo_split", seed=99, use_random_seed=False)
 
     train1_imgs = sorted(os.listdir(os.path.join(out_dir1, "train", "images")))
     train2_imgs = sorted(os.listdir(os.path.join(out_dir2, "train", "images")))

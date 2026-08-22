@@ -44,8 +44,8 @@ def main(out_root: str) -> int:
     yolo = DatasetExporter(annotations, class_names, yolo_dir).export("yolo")
     coco = DatasetExporter(annotations, class_names, coco_dir).export("coco")
 
-    print(f"YOLO  → {yolo['images']} images, classes={yolo['classes']} → {yolo['output_dir']}")
-    print(f"COCO  → {coco['images']} images, labels={coco['labels']}    → {coco['output_dir']}")
+    print(f"YOLO  -> {yolo['images']} images, classes={yolo['classes']} -> {yolo['output_dir']}")
+    print(f"COCO  -> {coco['images']} images, labels={coco['labels']}    -> {coco['output_dir']}")
     return 0
 
 
