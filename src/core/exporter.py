@@ -1,13 +1,14 @@
 """
 core/exporter.py
 ─────────────────
-Exports annotated frames + labels in either YOLO or COCO format.
+Exports annotated frames + labels in YOLO, YOLO Split, or COCO format.
 
 Only frames where ``is_annotated == True`` are exported.
 Non-annotated frames are skipped entirely.
 """
 import json
 import os
+import random
 import shutil
 from collections.abc import Callable
 from datetime import datetime
@@ -42,6 +43,14 @@ class DatasetExporter:
         self,
         fmt: str = "yolo",
         progress_callback: Callable | None = None,
+        split: bool = False,
+        train_ratio: float = 0.70,
+        val_ratio: float = 0.20,
+        test_ratio: float = 0.10,
+        seed: int | None = 42,
+        use_random_seed: bool = False,
+        export_classes: bool = False,
+        export_yaml: bool = False,
     ) -> dict:
         """
         Returns a summary dict: {format, output_dir, images, labels, classes}.
@@ -49,7 +58,7 @@ class DatasetExporter:
         """
         annotated = [
             a for a in self.annotations.values()
-            if a.is_annotated and a.boxes and a.frame_path
+            if a.is_annotated and (a.boxes or a.polygons or a.classifications) and a.frame_path
         ]
         if not annotated:
             raise ValueError(
@@ -59,18 +68,146 @@ class DatasetExporter:
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-        fmt = fmt.lower().strip()
-        if fmt == "yolo":
-            return self._export_yolo(annotated, progress_callback)
-        if fmt == "coco":
+        fmt_clean = fmt.lower().strip()
+        if fmt_clean in ("yolo_split", "yolo-split", "split") or (fmt_clean == "yolo" and split):
+            return self._export_yolo_split(
+                annotated,
+                progress_callback,
+                train_ratio=train_ratio,
+                val_ratio=val_ratio,
+                test_ratio=test_ratio,
+                seed=seed,
+                use_random_seed=use_random_seed,
+                export_classes=export_classes,
+                export_yaml=export_yaml,
+            )
+        if fmt_clean in ("yolo", "yolo txt"):
+            return self._export_yolo(annotated, progress_callback, export_classes=export_classes, export_yaml=export_yaml)
+        if fmt_clean in ("coco", "coco json"):
             return self._export_coco(annotated, progress_callback)
         raise ValueError(f"Unknown export format: {fmt!r}")
+
+    # ── YOLO Dataset Split ───────────────────────────────────────────────────
+    def _export_yolo_split(
+        self,
+        annotated: list[FrameAnnotation],
+        progress_callback: Callable | None,
+        train_ratio: float = 0.70,
+        val_ratio: float = 0.20,
+        test_ratio: float = 0.10,
+        seed: int | None = 42,
+        use_random_seed: bool = False,
+        export_classes: bool = False,
+        export_yaml: bool = False,
+    ) -> dict:
+        class_id_map = self._build_class_id_map(annotated)
+        ordered = sorted(class_id_map.items(), key=lambda kv: kv[1])
+        ordered_names = [name for name, _ in ordered]
+
+        ordered_anns = sorted(annotated, key=lambda a: a.frame_index)
+        if use_random_seed or seed is None:
+            rnd = random.Random()
+        else:
+            rnd = random.Random(int(seed))
+
+        shuffled_anns = list(ordered_anns)
+        rnd.shuffle(shuffled_anns)
+
+        total = len(shuffled_anns)
+
+        # Normalize ratios if sum != 1.0
+        ratio_sum = train_ratio + val_ratio + test_ratio
+        if ratio_sum > 0:
+            train_ratio /= ratio_sum
+            val_ratio /= ratio_sum
+            test_ratio /= ratio_sum
+
+        n_train = int(round(total * train_ratio))
+        n_val   = int(round(total * val_ratio))
+        n_test  = max(0, total - n_train - n_val)
+
+        splits = {
+            "train": shuffled_anns[:n_train],
+            "val":   shuffled_anns[n_train:n_train + n_val],
+            "test":  shuffled_anns[n_train + n_val:],
+        }
+
+        for sname in ("train", "val", "test"):
+            os.makedirs(os.path.join(self.output_dir, sname, "images"), exist_ok=True)
+            os.makedirs(os.path.join(self.output_dir, sname, "labels"), exist_ok=True)
+
+        seq_counter = 1
+        for sname, ann_list in splits.items():
+            s_img_dir = os.path.join(self.output_dir, sname, "images")
+            s_lbl_dir = os.path.join(self.output_dir, sname, "labels")
+
+            for ann in ann_list:
+                src = ann.frame_path
+                if not src or not os.path.exists(src):
+                    log.warning(f"Frame missing on disk, skipping: {src}")
+                    continue
+                ext     = os.path.splitext(src)[1].lower() or ".jpg"
+                stem    = f"img_{seq_counter}"
+                dst_img = os.path.join(s_img_dir, stem + ext)
+                shutil.copy2(src, dst_img)
+
+                lbl_path = os.path.join(s_lbl_dir, stem + ".txt")
+                with open(lbl_path, "w", encoding="utf-8") as f:
+                    for box in ann.boxes:
+                        cid = class_id_map[box.class_name]
+                        f.write(
+                            f"{cid} {box.x_center:.6f} {box.y_center:.6f} "
+                            f"{box.width:.6f} {box.height:.6f}\n"
+                        )
+                    for poly in ann.polygons:
+                        cid = class_id_map[poly.class_name]
+                        pts_str = " ".join(f"{x:.6f} {y:.6f}" for x, y in poly.points)
+                        f.write(f"{cid} {pts_str}\n")
+
+                if progress_callback:
+                    progress_callback(seq_counter, total)
+                seq_counter += 1
+
+        if export_classes:
+            with open(os.path.join(self.output_dir, "classes.txt"), "w", encoding="utf-8") as f:
+                f.write("\n".join(ordered_names) + "\n")
+
+        if export_yaml:
+            yaml_path = os.path.join(self.output_dir, "data.yaml")
+            with open(yaml_path, "w", encoding="utf-8") as f:
+                f.write(f"path: {os.path.abspath(self.output_dir)}\n")
+                f.write("train: train/images\n")
+                f.write("val: val/images\n")
+                f.write("test: test/images\n\n")
+                f.write(f"nc: {len(ordered_names)}\n")
+                f.write("names:\n")
+                for cid, name in enumerate(ordered_names):
+                    f.write(f"  {cid}: {name}\n")
+
+        log.info(
+            f"YOLO split dataset complete — total: {total} "
+            f"(train: {len(splits['train'])}, val: {len(splits['val'])}, test: {len(splits['test'])}) "
+            f"→ {self.output_dir}"
+        )
+        return {
+            "format":        "yolo_split",
+            "output_dir":    self.output_dir,
+            "images":        total,
+            "labels":        total,
+            "total_images":  total,
+            "train_images":  len(splits["train"]),
+            "val_images":    len(splits["val"]),
+            "test_images":   len(splits["test"]),
+            "classes":       ordered_names,
+        }
 
     # ── YOLO ──────────────────────────────────────────────────────────────────
     def _export_yolo(
         self,
         annotated: list[FrameAnnotation],
         progress_callback: Callable | None,
+        export_classes: bool = False,
+        export_yaml: bool = False,
     ) -> dict:
         img_dir = os.path.join(self.output_dir, "images")
         lbl_dir = os.path.join(self.output_dir, "labels")
@@ -81,13 +218,9 @@ class DatasetExporter:
         ordered = sorted(class_id_map.items(), key=lambda kv: kv[1])
         ordered_names = [name for name, _ in ordered]
 
-        # Sequential 1-based numbering so files line up:
-        #   images/img_1.png  ↔  labels/img_1.txt
-        #   images/img_2.png  ↔  labels/img_2.txt
-        # Sorted by original frame_index so order is deterministic.
         ordered_anns = sorted(annotated, key=lambda a: a.frame_index)
-
         total = len(ordered_anns)
+
         for seq, ann in enumerate(ordered_anns, start=1):
             src = ann.frame_path
             if not os.path.exists(src):
@@ -99,30 +232,35 @@ class DatasetExporter:
             shutil.copy2(src, dst_img)
 
             lbl_path = os.path.join(lbl_dir, stem + ".txt")
-            with open(lbl_path, "w") as f:
+            with open(lbl_path, "w", encoding="utf-8") as f:
                 for box in ann.boxes:
                     cid = class_id_map[box.class_name]
                     f.write(
                         f"{cid} {box.x_center:.6f} {box.y_center:.6f} "
                         f"{box.width:.6f} {box.height:.6f}\n"
                     )
+                for poly in ann.polygons:
+                    cid = class_id_map[poly.class_name]
+                    pts_str = " ".join(f"{x:.6f} {y:.6f}" for x, y in poly.points)
+                    f.write(f"{cid} {pts_str}\n")
 
             if progress_callback:
                 progress_callback(seq, total)
 
-        # classes.txt + data.yaml
-        with open(os.path.join(self.output_dir, "classes.txt"), "w") as f:
-            f.write("\n".join(ordered_names) + "\n")
+        if export_classes:
+            with open(os.path.join(self.output_dir, "classes.txt"), "w", encoding="utf-8") as f:
+                f.write("\n".join(ordered_names) + "\n")
 
-        yaml_path = os.path.join(self.output_dir, "data.yaml")
-        with open(yaml_path, "w") as f:
-            f.write(f"path: {os.path.abspath(self.output_dir)}\n")
-            f.write("train: images\n")
-            f.write("val: images\n")
-            f.write(f"nc: {len(ordered_names)}\n")
-            f.write("names:\n")
-            for n in ordered_names:
-                f.write(f"  - {n}\n")
+        if export_yaml:
+            yaml_path = os.path.join(self.output_dir, "data.yaml")
+            with open(yaml_path, "w", encoding="utf-8") as f:
+                f.write(f"path: {os.path.abspath(self.output_dir)}\n")
+                f.write("train: images\n")
+                f.write("val: images\n")
+                f.write(f"nc: {len(ordered_names)}\n")
+                f.write("names:\n")
+                for cid, name in enumerate(ordered_names):
+                    f.write(f"  {cid}: {name}\n")
 
         log.info(
             f"YOLO export complete — {total} images, "
@@ -142,7 +280,7 @@ class DatasetExporter:
         annotated: list[FrameAnnotation],
         progress_callback: Callable | None,
     ) -> dict:
-        import cv2  # local import — cv2 not needed for YOLO export
+        import cv2
 
         img_dir = os.path.join(self.output_dir, "images")
         os.makedirs(img_dir, exist_ok=True)
@@ -217,7 +355,7 @@ class DatasetExporter:
         }
 
         json_path = os.path.join(self.output_dir, "annotations.json")
-        with open(json_path, "w") as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(coco, f, indent=2)
 
         log.info(
@@ -240,14 +378,15 @@ class DatasetExporter:
         Preserves any ids already known from the YOLO model class_names,
         then appends user-typed manual classes.
         """
-        # 1) Names from model — keep their numeric order if possible
         seen: dict[str, int] = {}
         for _cid, name in sorted(self.class_names.items(), key=lambda kv: kv[0]):
             if name not in seen:
                 seen[name] = len(seen)
-        # 2) Names from actual annotations — append any new ones
         for ann in annotated:
             for box in ann.boxes:
                 if box.class_name not in seen:
                     seen[box.class_name] = len(seen)
+            for poly in ann.polygons:
+                if poly.class_name not in seen:
+                    seen[poly.class_name] = len(seen)
         return seen

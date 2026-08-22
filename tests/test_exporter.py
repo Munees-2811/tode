@@ -33,7 +33,7 @@ class TestDatasetExporter:
     def test_yolo_export_creates_files(self, setup):
         annotations, class_names, out_dir = setup
         exp    = DatasetExporter(annotations, class_names, out_dir)
-        result = exp.export("yolo")
+        result = exp.export("yolo", export_classes=True, export_yaml=True)
 
         assert result["format"] == "yolo"
         assert result["images"] == 3
@@ -55,7 +55,7 @@ class TestDatasetExporter:
 
     def test_yolo_data_yaml_content(self, setup):
         annotations, class_names, out_dir = setup
-        DatasetExporter(annotations, class_names, out_dir).export("yolo")
+        DatasetExporter(annotations, class_names, out_dir).export("yolo", export_yaml=True)
 
         with open(os.path.join(out_dir, "data.yaml")) as f:
             content = f.read()
