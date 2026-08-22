@@ -58,28 +58,35 @@ class SegmentationPanel(tk.Frame):
     def __init__(
         self,
         master,
-        on_save_click:         Callable = None,
-        on_clear_click:        Callable = None,
-        on_delete_poly:        Callable = None,
-        on_poly_select:        Callable = None,
-        on_class_changed:      Callable = None,
-        on_opacity_change:     Callable = None,
-        on_model_change:       Callable = None,
-        on_auto_seg_click:     Callable = None,
-        on_auto_seg_all_click: Callable = None,
+        on_save_click:                 Callable = None,
+        on_clear_click:                Callable = None,
+        on_delete_poly:                Callable = None,
+        on_poly_select:                Callable = None,
+        on_class_changed:              Callable = None,
+        on_opacity_change:             Callable = None,
+        on_model_change:               Callable = None,
+        on_auto_seg_click:             Callable = None,
+        on_auto_seg_all_click:         Callable = None,
+        on_accept_poly_suggestion:     Callable = None,
+        on_accept_all_poly_suggestions:Callable = None,
+        on_reject_all_poly_suggestions:Callable = None,
     ) -> None:
         super().__init__(master, bg=BG_PANEL, width=280)
         self.pack_propagate(False)
 
-        self._on_save          = on_save_click
-        self._on_clear         = on_clear_click
-        self._on_delete_poly   = on_delete_poly
-        self._on_poly_select   = on_poly_select
-        self._on_class_changed = on_class_changed
-        self._on_opacity       = on_opacity_change
-        self._on_model_change  = on_model_change
-        self._on_auto_seg      = on_auto_seg_click
-        self._on_auto_seg_all  = on_auto_seg_all_click
+        self._on_save                  = on_save_click
+        self._on_clear                 = on_clear_click
+        self._on_delete_poly           = on_delete_poly
+        self._on_poly_select           = on_poly_select
+        self._on_class_changed         = on_class_changed
+        self._on_opacity               = on_opacity_change
+        self._on_model_change          = on_model_change
+        self._on_auto_seg              = on_auto_seg_click
+        self._on_auto_seg_all          = on_auto_seg_all_click
+        self._on_accept_poly           = on_accept_poly_suggestion
+        self._on_accept_all_polys      = on_accept_all_poly_suggestions
+        self._on_reject_all_polys      = on_reject_all_poly_suggestions
+        self._item_map: list[tuple[int, bool]] = []   # [(idx, is_suggestion)]
 
         # semantic class list: [{name, color}, …]
         self._classes: list[dict] = []
@@ -254,8 +261,19 @@ class SegmentationPanel(tk.Frame):
 
         del_row = tk.Frame(self, bg=BG_PANEL)
         del_row.pack(fill=tk.X, padx=8, pady=(3, 0))
+
+        acc_poly_btn = tk.Button(
+            del_row, text="✔  Accept",
+            command=self._accept_selected_poly,
+            bg="#2d8a4e", fg="white", relief=tk.FLAT,
+            padx=6, pady=3, font=("Consolas", 8, "bold"), cursor="hand2",
+            activebackground="#3da060", activeforeground="white", bd=0,
+        )
+        acc_poly_btn.pack(side=tk.LEFT)
+        _hover_btn(acc_poly_btn, "#2d8a4e", "#3da060")
+
         del_poly_btn = tk.Button(
-            del_row, text="🗑  Delete Selected",
+            del_row, text="🗑  Delete",
             command=self._delete_selected_poly,
             bg="#7a3333", fg="white", relief=tk.FLAT,
             padx=6, pady=3, font=("Consolas", 8), cursor="hand2",
@@ -288,6 +306,29 @@ class SegmentationPanel(tk.Frame):
         )
         auto_all_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(2, 0))
         _hover_btn(auto_all_btn, "#4a3a8a", "#6a5aaf")
+
+        sugg_btn_row = tk.Frame(self, bg=BG_PANEL)
+        sugg_btn_row.pack(fill=tk.X, padx=8, pady=2)
+
+        acc_all_btn = tk.Button(
+            sugg_btn_row, text="✔ Accept All Suggs",
+            command=lambda: self._on_accept_all_polys and self._on_accept_all_polys(),
+            bg="#2d8a4e", fg="white", relief=tk.FLAT,
+            padx=4, pady=4, font=("Consolas", 8, "bold"), cursor="hand2",
+            activebackground="#3da060", activeforeground="white", bd=0,
+        )
+        acc_all_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
+        _hover_btn(acc_all_btn, "#2d8a4e", "#3da060")
+
+        rej_all_btn = tk.Button(
+            sugg_btn_row, text="✖ Reject All Suggs",
+            command=lambda: self._on_reject_all_polys and self._on_reject_all_polys(),
+            bg="#7a3333", fg="white", relief=tk.FLAT,
+            padx=4, pady=4, font=("Consolas", 8, "bold"), cursor="hand2",
+            activebackground="#a04040", activeforeground="white", bd=0,
+        )
+        rej_all_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(2, 0))
+        _hover_btn(rej_all_btn, "#7a3333", "#a04040")
 
         save_btn = tk.Button(
             self, text="💾  Save Annotations",
@@ -324,10 +365,13 @@ class SegmentationPanel(tk.Frame):
         self,
         polygons: list[PolygonAnnotation],
         class_names: list[str],
+        suggested_polygons: list[PolygonAnnotation] = None,
         *args,
     ) -> None:
         """Refresh polygon list. Also syncs class combo values."""
-        # merge any unseen class names into our class list
+        if suggested_polygons is None:
+            suggested_polygons = []
+
         existing = {c["name"] for c in self._classes}
         for name in class_names:
             if name not in existing:
@@ -336,20 +380,34 @@ class SegmentationPanel(tk.Frame):
                 existing.add(name)
 
         self._poly_listbox.delete(0, tk.END)
-        for i, poly in enumerate(polygons):
-            color = self._color_for(poly.class_name)
-            conf  = f"{poly.confidence:.2f}" if poly.confidence < 1.0 else "manual"
+        self._item_map.clear()
+
+        # Insert AI suggested polygons first
+        for i, poly in enumerate(suggested_polygons):
+            conf = f"{poly.confidence:.2f}"
+            row_idx = self._poly_listbox.size()
             self._poly_listbox.insert(
                 tk.END,
-                f"  [{i:02d}] {poly.class_name:<14} {len(poly.points):2d}pts  {conf}",
+                f" 🤖 SUGG  {poly.class_name:<12} {len(poly.points):2d}pts {conf}",
             )
-            # tint the row with the class colour
-            self._poly_listbox.itemconfig(
-                i, fg=color, selectforeground="white",
-            )
+            self._poly_listbox.itemconfig(row_idx, fg="#aa66ff")
+            self._item_map.append((i, True))
 
-        n = len(polygons)
-        self._stats_var.set(f"{n} polygon{'s' if n != 1 else ''}")
+        # Insert confirmed polygons
+        for i, poly in enumerate(polygons):
+            color = self._color_for(poly.class_name)
+            conf  = f"{poly.confidence:.2f}" if poly.confidence < 1.0 else "  — "
+            row_idx = self._poly_listbox.size()
+            self._poly_listbox.insert(
+                tk.END,
+                f" ✏ MAN   {poly.class_name:<12} {len(poly.points):2d}pts {conf}",
+            )
+            self._poly_listbox.itemconfig(row_idx, fg=color)
+            self._item_map.append((i, False))
+
+        n = len(polygons) + len(suggested_polygons)
+        sugg_n = len(suggested_polygons)
+        self._stats_var.set(f"{n} poly{'s' if n != 1 else ''} ({sugg_n} sugg)")
 
     def get_selected_class(self) -> str:
         """Return the currently highlighted class name."""
@@ -518,13 +576,32 @@ class SegmentationPanel(tk.Frame):
 
     # ── polygon list events ────────────────────────────────────────────────
 
+    def _accept_selected_poly(self) -> None:
+        sel = self._poly_listbox.curselection()
+        if sel and self._on_accept_poly and sel[0] < len(self._item_map):
+            idx, is_sugg = self._item_map[sel[0]]
+            if is_sugg:
+                self._on_accept_poly(idx)
+
     def _delete_selected_poly(self) -> None:
         sel = self._poly_listbox.curselection()
-        if sel and self._on_delete_poly:
-            self._on_delete_poly(sel[0])
+        if sel and self._on_delete_poly and sel[0] < len(self._item_map):
+            idx, is_sugg = self._item_map[sel[0]]
+            try:
+                self._on_delete_poly(idx, is_sugg)
+            except TypeError:
+                self._on_delete_poly(idx)
 
     def _on_poly_listbox_select(self, _event) -> None:
-        sel  = self._poly_listbox.curselection()
-        idx  = sel[0] if sel else None
-        if self._on_poly_select:
-            self._on_poly_select(idx)
+        sel = self._poly_listbox.curselection()
+        if sel and self._on_poly_select and sel[0] < len(self._item_map):
+            idx, is_sugg = self._item_map[sel[0]]
+            try:
+                self._on_poly_select(idx, is_sugg)
+            except TypeError:
+                self._on_poly_select(idx)
+        elif self._on_poly_select:
+            try:
+                self._on_poly_select(None, False)
+            except TypeError:
+                self._on_poly_select(None)

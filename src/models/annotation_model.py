@@ -116,10 +116,12 @@ class FrameAnnotation:
     frame_index:     int
     frame_path:      str
     label_path:      str | None = None
-    boxes:           list[BoundingBox] = field(default_factory=list)
-    polygons:        list[PolygonAnnotation] = field(default_factory=list)
-    classifications: list[ImageClassification] = field(default_factory=list)
-    is_annotated:    bool = False
+    boxes:              list[BoundingBox] = field(default_factory=list)
+    polygons:           list[PolygonAnnotation] = field(default_factory=list)
+    classifications:    list[ImageClassification] = field(default_factory=list)
+    suggested_boxes:    list[BoundingBox] = field(default_factory=list)
+    suggested_polygons: list[PolygonAnnotation] = field(default_factory=list)
+    is_annotated:       bool = False
 
     def _refresh_annotated(self) -> None:
         self.is_annotated = bool(self.boxes or self.polygons or self.classifications)
@@ -161,3 +163,82 @@ class FrameAnnotation:
     def clear_classifications(self) -> None:
         self.classifications.clear()
         self._refresh_annotated()
+
+    # ── suggestion helpers ───────────────────────────────────────────────────
+
+    def add_suggested_box(self, box: BoundingBox) -> None:
+        self.suggested_boxes.append(box)
+
+    def clear_suggested_boxes(self) -> None:
+        self.suggested_boxes.clear()
+
+    def add_suggested_polygon(self, poly: PolygonAnnotation) -> None:
+        self.suggested_polygons.append(poly)
+
+    def clear_suggested_polygons(self) -> None:
+        self.suggested_polygons.clear()
+
+    def clear_suggestions(self) -> None:
+        self.suggested_boxes.clear()
+        self.suggested_polygons.clear()
+
+    def accept_suggested_box(self, index: int) -> BoundingBox | None:
+        if 0 <= index < len(self.suggested_boxes):
+            box = self.suggested_boxes.pop(index)
+            self.add_box(box)
+            return box
+        return None
+
+    def accept_all_suggested_boxes(self, min_confidence: float = 0.0) -> list[BoundingBox]:
+        accepted = []
+        remaining = []
+        for box in self.suggested_boxes:
+            if box.confidence >= min_confidence:
+                self.add_box(box)
+                accepted.append(box)
+            else:
+                remaining.append(box)
+        self.suggested_boxes = remaining
+        return accepted
+
+    def reject_suggested_box(self, index: int) -> BoundingBox | None:
+        if 0 <= index < len(self.suggested_boxes):
+            return self.suggested_boxes.pop(index)
+        return None
+
+    def reject_all_suggested_boxes(self) -> None:
+        self.suggested_boxes.clear()
+
+    def accept_suggested_polygon(self, index: int) -> PolygonAnnotation | None:
+        if 0 <= index < len(self.suggested_polygons):
+            poly = self.suggested_polygons.pop(index)
+            self.add_polygon(poly)
+            return poly
+        return None
+
+    def accept_all_suggested_polygons(self, min_confidence: float = 0.0) -> list[PolygonAnnotation]:
+        accepted = []
+        remaining = []
+        for poly in self.suggested_polygons:
+            if poly.confidence >= min_confidence:
+                self.add_polygon(poly)
+                accepted.append(poly)
+            else:
+                remaining.append(poly)
+        self.suggested_polygons = remaining
+        return accepted
+
+    def reject_suggested_polygon(self, index: int) -> PolygonAnnotation | None:
+        if 0 <= index < len(self.suggested_polygons):
+            return self.suggested_polygons.pop(index)
+        return None
+
+    def reject_all_suggested_polygons(self) -> None:
+        self.suggested_polygons.clear()
+
+    def get_filtered_suggested_boxes(self, min_confidence: float = 0.0) -> list[BoundingBox]:
+        return [b for b in self.suggested_boxes if b.confidence >= min_confidence]
+
+    def get_filtered_suggested_polygons(self, min_confidence: float = 0.0) -> list[PolygonAnnotation]:
+        return [p for p in self.suggested_polygons if p.confidence >= min_confidence]
+
