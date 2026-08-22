@@ -1,9 +1,8 @@
 """Tests for advanced polygon segmentation features and auto-annotation."""
 import numpy as np
-import pytest
-from models.annotation_model import FrameAnnotation, PolygonAnnotation
+
 from core.base_detector import BaseDetector
-from core.annotation_manager import AnnotationManager
+from models.annotation_model import FrameAnnotation, PolygonAnnotation
 
 
 def test_polygon_geometry_area_and_perimeter():

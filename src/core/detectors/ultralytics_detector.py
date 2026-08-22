@@ -8,7 +8,6 @@ inherits that obligation.  For closed-source or SaaS deployments use
 ONNXDetector instead — it carries no AGPL surface.
 """
 import os
-#import re
 
 import numpy as np
 
@@ -125,7 +124,7 @@ def _seg_model_path(det_path: str) -> str | None:
     if base.endswith(".pt"):
         return det_path.replace(".pt", "-seg.pt")
     # Bare model name (auto-downloaded by ultralytics)
-    if not "." in base:
+    if "." not in base:
         return det_path + "-seg"
     return None
 
