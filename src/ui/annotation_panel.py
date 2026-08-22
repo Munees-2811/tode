@@ -20,27 +20,34 @@ class AnnotationPanel(tk.Frame):
     def __init__(
         self,
         master,
-        on_yolo_click:       Callable,
-        on_yolo_all_click:   Callable,
-        on_save_click:       Callable,
-        on_clear_click:      Callable,
-        on_delete_box:       Callable = None,   # callable(box_index)
-        on_conf_change:      Callable = None,   # callable(float)
-        on_model_change:     Callable = None,   # callable(model_name: str)
-        on_box_select:       Callable = None,   # callable(box_index_or_None)
+        on_yolo_click:             Callable,
+        on_yolo_all_click:         Callable,
+        on_save_click:             Callable,
+        on_clear_click:            Callable,
+        on_delete_box:             Callable = None,   # callable(box_index, is_suggestion)
+        on_conf_change:            Callable = None,   # callable(float)
+        on_model_change:           Callable = None,   # callable(model_name: str)
+        on_box_select:             Callable = None,   # callable(box_index_or_None, is_suggestion)
+        on_accept_suggestion:      Callable = None,   # callable(sugg_index)
+        on_accept_all_suggestions: Callable = None,   # callable()
+        on_reject_all_suggestions: Callable = None,   # callable()
     ):
         super().__init__(master, bg=BG_PANEL, width=280)
         self.pack_propagate(False)
 
-        self._on_yolo        = on_yolo_click
-        self._on_yolo_all    = on_yolo_all_click
-        self._on_save        = on_save_click
-        self._on_clear       = on_clear_click
-        self._on_delete_box  = on_delete_box
-        self._on_conf_change = on_conf_change
-        self._on_model_change = on_model_change
-        self._on_box_select  = on_box_select
-        self._syncing_selection = False
+        self._on_yolo                  = on_yolo_click
+        self._on_yolo_all              = on_yolo_all_click
+        self._on_save                  = on_save_click
+        self._on_clear                 = on_clear_click
+        self._on_delete_box            = on_delete_box
+        self._on_conf_change           = on_conf_change
+        self._on_model_change          = on_model_change
+        self._on_box_select            = on_box_select
+        self._on_accept_suggestion     = on_accept_suggestion
+        self._on_accept_all_suggestions= on_accept_all_suggestions
+        self._on_reject_all_suggestions= on_reject_all_suggestions
+        self._syncing_selection        = False
+        self._item_map: list[tuple[int, bool]] = []   # [(idx, is_suggestion)]
 
         # Current class names from YOLO model
         self._class_names: dict[int, str] = {}
@@ -187,8 +194,37 @@ class AnnotationPanel(tk.Frame):
             padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
             activebackground="#7a6adf", activeforeground="white", bd=0,
         )
-        yolo_all.pack(fill=tk.X, padx=10, pady=(0, 8))
+        yolo_all.pack(fill=tk.X, padx=10, pady=(0, 6))
         _hover_btn(yolo_all, "#5a4fbf", "#7a6adf")
+
+        sugg_hdr = tk.Label(
+            parent, text="AI SUGGESTIONS ACTIONS",
+            bg=BG_PANEL, fg=ACCENT, font=("Consolas", 8, "bold"),
+        )
+        sugg_hdr.pack(pady=(6, 2), padx=10, anchor=tk.W)
+
+        sugg_btn_row = tk.Frame(parent, bg=BG_PANEL)
+        sugg_btn_row.pack(fill=tk.X, padx=10, pady=(0, 8))
+
+        acc_all_btn = tk.Button(
+            sugg_btn_row, text="✔ Accept All",
+            command=self._accept_all_suggestions,
+            bg="#2d8a4e", fg="white", relief=tk.FLAT,
+            padx=4, pady=5, font=("Consolas", 8, "bold"), cursor="hand2",
+            activebackground="#3da060", activeforeground="white", bd=0,
+        )
+        acc_all_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
+        _hover_btn(acc_all_btn, "#2d8a4e", "#3da060")
+
+        rej_all_btn = tk.Button(
+            sugg_btn_row, text="✖ Reject All",
+            command=self._reject_all_suggestions,
+            bg="#7a3333", fg="white", relief=tk.FLAT,
+            padx=4, pady=5, font=("Consolas", 8, "bold"), cursor="hand2",
+            activebackground="#a04040", activeforeground="white", bd=0,
+        )
+        rej_all_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(2, 0))
+        _hover_btn(rej_all_btn, "#7a3333", "#a04040")
 
     def _build_manual_tab(self, parent):
         tk.Label(
@@ -257,7 +293,7 @@ class AnnotationPanel(tk.Frame):
         hdr.pack(fill=tk.X, padx=8, pady=(4, 2))
 
         tk.Label(
-            hdr, text="DETECTED BOXES",
+            hdr, text="BOXES & AI SUGGESTIONS",
             bg=BG_PANEL, fg="#888899", font=("Consolas", 7, "bold"),
         ).pack(side=tk.LEFT)
 
@@ -286,8 +322,18 @@ class AnnotationPanel(tk.Frame):
         del_row = tk.Frame(self, bg=BG_PANEL)
         del_row.pack(fill=tk.X, padx=8, pady=(3, 0))
 
+        acc_btn = tk.Button(
+            del_row, text="✔  Accept",
+            command=self._accept_selected,
+            bg="#2d8a4e", fg="white", relief=tk.FLAT,
+            padx=6, pady=3, font=("Consolas", 8, "bold"), cursor="hand2",
+            activebackground="#3da060", activeforeground="white", bd=0,
+        )
+        acc_btn.pack(side=tk.LEFT)
+        _hover_btn(acc_btn, "#2d8a4e", "#3da060")
+
         del_btn = tk.Button(
-            del_row, text="🗑  Delete Selected",
+            del_row, text="🗑  Delete",
             command=self._delete_selected,
             bg="#7a3333", fg="white", relief=tk.FLAT,
             padx=6, pady=3, font=("Consolas", 8), cursor="hand2",
@@ -356,32 +402,67 @@ class AnnotationPanel(tk.Frame):
         if self._on_conf_change:
             self._on_conf_change(fval)
 
+    def _accept_selected(self):
+        sel = self.listbox.curselection()
+        if sel and self._on_accept_suggestion and sel[0] < len(self._item_map):
+            idx, is_sugg = self._item_map[sel[0]]
+            if is_sugg:
+                self._on_accept_suggestion(idx)
+
+    def _accept_all_suggestions(self):
+        if self._on_accept_all_suggestions:
+            self._on_accept_all_suggestions()
+
+    def _reject_all_suggestions(self):
+        if self._on_reject_all_suggestions:
+            self._on_reject_all_suggestions()
+
     def _delete_selected(self):
         sel = self.listbox.curselection()
-        if sel and self._on_delete_box:
-            self._on_delete_box(sel[0])
+        if sel and self._on_delete_box and sel[0] < len(self._item_map):
+            idx, is_sugg = self._item_map[sel[0]]
+            try:
+                self._on_delete_box(idx, is_sugg)
+            except TypeError:
+                self._on_delete_box(idx)
 
     def _on_listbox_select(self, _event):
         if self._syncing_selection:
             return
         sel = self.listbox.curselection()
-        idx = sel[0] if sel else None
-        if self._on_box_select:
-            self._on_box_select(idx)
+        if sel and self._on_box_select and sel[0] < len(self._item_map):
+            idx, is_sugg = self._item_map[sel[0]]
+            try:
+                self._on_box_select(idx, is_sugg)
+            except TypeError:
+                self._on_box_select(idx)
+        elif self._on_box_select:
+            try:
+                self._on_box_select(None, False)
+            except TypeError:
+                self._on_box_select(None)
 
-    def set_selected_box(self, idx):
+    def set_selected_box(self, idx: int | None, is_suggestion: bool = False):
         """Sync listbox to match canvas selection (without re-firing callback)."""
         self._syncing_selection = True
         try:
             self.listbox.selection_clear(0, tk.END)
-            if idx is not None and 0 <= idx < self.listbox.size():
-                self.listbox.selection_set(idx)
-                self.listbox.see(idx)
+            if idx is not None:
+                for list_idx, (item_idx, item_is_sugg) in enumerate(self._item_map):
+                    if item_idx == idx and item_is_sugg == is_suggestion:
+                        self.listbox.selection_set(list_idx)
+                        self.listbox.see(list_idx)
+                        break
         finally:
             self._syncing_selection = False
 
     # ── public API ────────────────────────────────────────────────────────────
-    def update_boxes(self, boxes: list[BoundingBox], class_names: dict[int, str]):
+    def update_boxes(
+        self,
+        boxes: list[BoundingBox],
+        class_names: dict[int, str],
+        suggested_boxes: list[BoundingBox] = None,
+    ):
         self._class_names = class_names
 
         names = sorted(set(class_names.values())) if class_names else ["object"]
@@ -389,19 +470,47 @@ class AnnotationPanel(tk.Frame):
         if names and self.selected_class_var.get() not in names:
             self.selected_class_var.set(names[0])
 
+        if suggested_boxes is None:
+            suggested_boxes = []
+
+        conf_thresh = self.get_confidence_threshold()
+        cls_filter = self.get_class_filter()
+
+        filtered_suggs = []
+        for i, box in enumerate(suggested_boxes):
+            if box.confidence >= conf_thresh:
+                if not cls_filter or box.class_name.lower() in cls_filter:
+                    filtered_suggs.append((i, box))
+
         self.listbox.delete(0, tk.END)
-        for i, box in enumerate(boxes):
-            src  = "YOLO" if box.confidence < 1.0 else " MAN"
-            conf = f"{box.confidence:.2f}" if box.confidence < 1.0 else "  — "
+        self._item_map.clear()
+
+        # Insert AI Suggestions first (purple)
+        for orig_i, box in filtered_suggs:
+            conf = f"{box.confidence:.2f}"
+            row_idx = self.listbox.size()
             self.listbox.insert(
                 tk.END,
-                f"  [{i:02d}] {src}  {box.class_name:<14} {conf}",
+                f" 🤖 SUGG  {box.class_name:<12} {conf}",
             )
-            row_fg = ACCENT if box.confidence < 1.0 else "#55cc77"
-            self.listbox.itemconfig(i, fg=row_fg)
+            self.listbox.itemconfig(row_idx, fg="#aa66ff")
+            self._item_map.append((orig_i, True))
 
-        n = len(boxes)
-        self.stats_var.set(f"{n} box{'es' if n != 1 else ''}")
+        # Insert confirmed/manual boxes (green)
+        for i, box in enumerate(boxes):
+            src  = "MAN" if box.confidence >= 1.0 else "CONF"
+            conf = f"{box.confidence:.2f}" if box.confidence < 1.0 else "  — "
+            row_idx = self.listbox.size()
+            self.listbox.insert(
+                tk.END,
+                f" ✏ {src:<4}  {box.class_name:<12} {conf}",
+            )
+            self.listbox.itemconfig(row_idx, fg="#55cc77")
+            self._item_map.append((i, False))
+
+        total_n = len(boxes) + len(filtered_suggs)
+        sugg_n = len(filtered_suggs)
+        self.stats_var.set(f"{total_n} box{'es' if total_n != 1 else ''} ({sugg_n} sugg)")
 
     def get_selected_class(self) -> str:
         """Return custom class if typed, otherwise combo selection."""

@@ -48,6 +48,9 @@ class VideoPlayer(tk.Frame):
         self._indices: list[int] = []
         self._pos = 0
         self._boxes: list[BoundingBox] = []
+        self._suggested_boxes: list[BoundingBox] = []
+        self._polygons: list[PolygonAnnotation] = []
+        self._suggested_polygons: list[PolygonAnnotation] = []
         self._photo = None
         self._photo_size = (0, 0)
         self._image_id = None
@@ -61,6 +64,7 @@ class VideoPlayer(tk.Frame):
 
         # ── edit-mode state ───────────────────────────────────────────────────
         self._selected_idx: int | None = None
+        self._selected_is_suggestion: bool = False
         self._edit_handle: str | None = None
         self._edit_drag_start: tuple | None = None
 
@@ -227,14 +231,24 @@ class VideoPlayer(tk.Frame):
 
     def set_overlay_boxes(self, boxes: list[BoundingBox]):
         self._boxes = list(boxes)
-        if (self._selected_idx is not None
-                and self._selected_idx >= len(self._boxes)):
+        if not self._selected_is_suggestion and self._selected_idx is not None and self._selected_idx >= len(self._boxes):
+            self._selected_idx = None
+        self._redraw()
+
+    def set_overlay_suggested_boxes(self, suggestions: list[BoundingBox]):
+        self._suggested_boxes = list(suggestions)
+        if self._selected_is_suggestion and self._selected_idx is not None and self._selected_idx >= len(self._suggested_boxes):
             self._selected_idx = None
         self._redraw()
 
     def set_overlay_polygons(self, polygons: list[PolygonAnnotation]):
         """Display committed polygon overlays on the canvas."""
         self._polygons = list(polygons)
+        self._redraw()
+
+    def set_overlay_suggested_polygons(self, suggestions: list[PolygonAnnotation]):
+        """Display AI suggested polygon overlays on the canvas."""
+        self._suggested_polygons = list(suggestions)
         self._redraw()
 
     def set_class_color_map(self, color_map: dict[str, str]) -> None:
@@ -254,11 +268,12 @@ class VideoPlayer(tk.Frame):
         self._poly_opacity = max(0.0, min(1.0, opacity))
         self._redraw()
 
-    def set_selected_box(self, idx: int | None):
+    def set_selected_box(self, idx: int | None, is_suggestion: bool = False):
         """Public — used by AnnotationPanel to sync selection from list."""
-        if idx is not None and (idx < 0 or idx >= len(self._boxes)):
+        target_list = self._suggested_boxes if is_suggestion else self._boxes
+        if idx is not None and (idx < 0 or idx >= len(target_list)):
             idx = None
-        self._select_box(idx)
+        self._select_box(idx, is_suggestion=is_suggestion)
 
     @property
     def current_frame_index(self) -> int:
@@ -335,18 +350,19 @@ class VideoPlayer(tk.Frame):
         # If a box is already selected and we pressed near a handle, start
         # resizing. Otherwise, see if the press hit any box → select it.
         if self._selected_idx is not None:
-            handle = self._handle_at(event.x, event.y, self._selected_idx)
+            handle = self._handle_at(event.x, event.y, self._selected_idx, is_suggestion=self._selected_is_suggestion)
             if handle is not None:
                 self._begin_edit(handle, event.x, event.y)
                 return
 
         hit = self._box_at(event.x, event.y)
         if hit is not None:
-            self._select_box(hit)
+            hit_idx, is_sugg = hit
+            self._select_box(hit_idx, is_suggestion=is_sugg)
             self._begin_edit("move", event.x, event.y)
         else:
             # Click on empty area → deselect
-            self._select_box(None)
+            self._select_box(None, is_suggestion=False)
 
     def _on_mouse_drag(self, event):
         if self._mode == self.MODE_DRAW and self._draw_start is not None:
@@ -467,25 +483,27 @@ class VideoPlayer(tk.Frame):
         y2 = oy + (cy + h / 2) * sc
         return x1, y1, x2, y2
 
-    def _box_at(self, cx, cy) -> int | None:
-        """Return the index of the topmost box containing canvas point (cx,cy),
-        or None. Smallest-area first so a tiny box inside a big one wins."""
+    def _box_at(self, cx, cy) -> tuple[int, bool] | None:
+        """Return (index, is_suggestion) of topmost box containing canvas point (cx,cy), or None."""
         candidates = []
         for i, b in enumerate(self._boxes):
             x1, y1, x2, y2 = self._box_pixel_rect(b)
             if x1 <= cx <= x2 and y1 <= cy <= y2:
-                candidates.append((i, (x2 - x1) * (y2 - y1)))
+                candidates.append((i, False, (x2 - x1) * (y2 - y1)))
+        for i, b in enumerate(self._suggested_boxes):
+            x1, y1, x2, y2 = self._box_pixel_rect(b)
+            if x1 <= cx <= x2 and y1 <= cy <= y2:
+                candidates.append((i, True, (x2 - x1) * (y2 - y1)))
         if not candidates:
             return None
-        candidates.sort(key=lambda t: t[1])
-        return candidates[0][0]
+        candidates.sort(key=lambda t: t[2])
+        return candidates[0][0], candidates[0][1]
 
-    def _handle_at(self, cx, cy, box_idx) -> str | None:
-        """Return the handle name (corner/edge/move) if (cx,cy) is on a
-        handle of self._boxes[box_idx], else None."""
-        if box_idx is None or box_idx >= len(self._boxes):
+    def _handle_at(self, cx, cy, box_idx, is_suggestion: bool = False) -> str | None:
+        target_list = self._suggested_boxes if is_suggestion else self._boxes
+        if box_idx is None or box_idx >= len(target_list):
             return None
-        x1, y1, x2, y2 = self._box_pixel_rect(self._boxes[box_idx])
+        x1, y1, x2, y2 = self._box_pixel_rect(target_list[box_idx])
         s = self.HANDLE_SIZE
         mx, my = (x1 + x2) / 2, (y1 + y2) / 2
         handles = {
@@ -501,7 +519,10 @@ class VideoPlayer(tk.Frame):
     def _begin_edit(self, handle, mx, my):
         if self._selected_idx is None:
             return
-        box = self._boxes[self._selected_idx]
+        target_list = self._suggested_boxes if self._selected_is_suggestion else self._boxes
+        if self._selected_idx >= len(target_list):
+            return
+        box = target_list[self._selected_idx]
         self._edit_handle = handle
         self._edit_drag_start = (mx, my, self._box_pixel_rect(box))
 
@@ -543,7 +564,10 @@ class VideoPlayer(tk.Frame):
             return  # ignore degenerate
 
         # Live-preview by updating local copy + redraw
-        box = self._boxes[self._selected_idx]
+        target_list = self._suggested_boxes if self._selected_is_suggestion else self._boxes
+        if self._selected_idx >= len(target_list):
+            return
+        box = target_list[self._selected_idx]
         box.x_center = (nx1 + nx2) / 2
         box.y_center = (ny1 + ny2) / 2
         box.width = nx2 - nx1
@@ -551,15 +575,22 @@ class VideoPlayer(tk.Frame):
         self._redraw()
 
         if commit and self._on_box_edited:
-            self._on_box_edited(self._selected_idx, nx1, ny1, nx2, ny2)
+            try:
+                self._on_box_edited(self._selected_idx, nx1, ny1, nx2, ny2, self._selected_is_suggestion)
+            except TypeError:
+                self._on_box_edited(self._selected_idx, nx1, ny1, nx2, ny2)
 
-    def _select_box(self, idx: int | None):
-        if idx == self._selected_idx:
+    def _select_box(self, idx: int | None, is_suggestion: bool = False):
+        if idx == self._selected_idx and is_suggestion == self._selected_is_suggestion:
             return
         self._selected_idx = idx
+        self._selected_is_suggestion = is_suggestion
         self._redraw()
         if self._on_box_selected:
-            self._on_box_selected(idx)
+            try:
+                self._on_box_selected(idx, is_suggestion)
+            except TypeError:
+                self._on_box_selected(idx)
 
     # ── coord conversion ──────────────────────────────────────────────────────
     def _canvas_to_norm(self, cx0, cy0, cx1, cy1):
@@ -787,10 +818,37 @@ class VideoPlayer(tk.Frame):
 
         self.canvas.delete("overlay")
 
-        # Highlight selected box + draw resize handles on top
-        if (self._selected_idx is not None
-                and self._selected_idx < len(self._boxes)):
-            x1, y1, x2, y2 = self._box_pixel_rect(self._boxes[self._selected_idx])
+        # Draw AI Suggested Boxes
+        for si, box in enumerate(self._suggested_boxes):
+            x1, y1, x2, y2 = self._box_pixel_rect(box)
+            is_sel = (self._selected_is_suggestion and self._selected_idx == si)
+            outline_col = "#ffaa00" if is_sel else "#aa66ff"
+            dash_pat = (2, 2) if is_sel else (4, 4)
+            w_size = 3 if is_sel else 2
+
+            self.canvas.create_rectangle(
+                x1, y1, x2, y2,
+                outline=outline_col, width=w_size, dash=dash_pat,
+                tags=("overlay", "suggested_box"),
+            )
+
+            badge_text = f"🤖 {box.class_name} {box.confidence:.2f}"
+            bw = len(badge_text) * 7 + 8
+            self.canvas.create_rectangle(
+                x1, max(0, y1 - 18), x1 + bw, y1,
+                fill="#5a3d99" if not is_sel else "#aa6600", outline="",
+                tags=("overlay", "suggested_box"),
+            )
+            self.canvas.create_text(
+                x1 + 4, max(9, y1 - 9), text=badge_text, anchor=tk.W,
+                fill="white", font=("Consolas", 8, "bold"),
+                tags=("overlay", "suggested_box"),
+            )
+
+        # Highlight selected box (confirmed or suggestion) + draw resize handles on top
+        target_list = self._suggested_boxes if self._selected_is_suggestion else self._boxes
+        if (self._selected_idx is not None and self._selected_idx < len(target_list)):
+            x1, y1, x2, y2 = self._box_pixel_rect(target_list[self._selected_idx])
             self.canvas.create_rectangle(
                 x1, y1, x2, y2,
                 outline="#ffaa00", width=2, dash=(2, 2), tags=("overlay", "selection"),
@@ -808,11 +866,40 @@ class VideoPlayer(tk.Frame):
                     tags=("overlay", "handle"),
                 )
 
-        # Draw committed polygon overlays (semantic colours + opacity)
+        # Draw AI Suggested Polygons
         _FALLBACK_COLORS = [
             "#00ff88", "#ff6644", "#44aaff", "#ffcc00",
             "#cc44ff", "#ff44aa", "#44ffcc",
         ]
+        for spi, poly in enumerate(self._suggested_polygons):
+            color = self._class_color_map.get(
+                poly.class_name,
+                _FALLBACK_COLORS[spi % len(_FALLBACK_COLORS)],
+            )
+            cv_pts = [self._norm_to_canvas(x, y) for x, y in poly.points]
+            if len(cv_pts) >= 3:
+                flat = [c for pt in cv_pts for c in pt]
+                self.canvas.create_polygon(
+                    *flat,
+                    outline=color, fill=color, stipple="gray25",
+                    width=2, dash=(4, 4), tags=("overlay", "suggested_polygon"),
+                )
+                self.canvas.create_polygon(
+                    *flat,
+                    outline=color, fill="", width=2, dash=(4, 4),
+                    tags=("overlay", "suggested_polygon"),
+                )
+            if cv_pts:
+                cx_c = sum(p[0] for p in cv_pts) / len(cv_pts)
+                cy_c = sum(p[1] for p in cv_pts) / len(cv_pts)
+                badge_text = f"🤖 {poly.class_name} {poly.confidence:.2f}"
+                self.canvas.create_text(
+                    cx_c, cy_c, text=badge_text,
+                    fill=color, font=("Helvetica", 8, "bold"),
+                    tags=("overlay", "suggested_polygon"),
+                )
+
+        # Draw committed polygon overlays (semantic colours + opacity)
         # Choose stipple pattern based on opacity setting
         opacity = self._poly_opacity
         if opacity >= 0.75:

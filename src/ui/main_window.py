@@ -81,14 +81,17 @@ class MainWindow(tk.Frame):
 
         self.ann_panel = AnnotationPanel(
             content,
-            on_yolo_click     = self._run_yolo,
-            on_yolo_all_click = self._run_yolo_all,
-            on_save_click     = self._save,
-            on_clear_click    = self._clear_frame,
-            on_delete_box     = self._delete_box,
-            on_conf_change    = self._on_conf_change,
-            on_model_change   = self._on_model_change,
-            on_box_select     = self._on_box_selected_in_list,
+            on_yolo_click              = self._run_yolo,
+            on_yolo_all_click          = self._run_yolo_all,
+            on_save_click              = self._save,
+            on_clear_click             = self._clear_frame,
+            on_delete_box              = self._delete_box,
+            on_conf_change             = self._on_conf_change,
+            on_model_change            = self._on_model_change,
+            on_box_select              = self._on_box_selected_in_list,
+            on_accept_suggestion      = self._accept_suggestion,
+            on_accept_all_suggestions = self._accept_all_suggestions,
+            on_reject_all_suggestions = self._reject_all_suggestions,
         )
         self.ann_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 6), pady=6)
 
@@ -96,14 +99,17 @@ class MainWindow(tk.Frame):
         self._class_color_map: dict[str, str] = {}
         self.seg_panel = SegmentationPanel(
             content,
-            on_save_click         = self._save,
-            on_clear_click        = self._clear_seg_frame,
-            on_delete_poly        = self._delete_polygon,
-            on_poly_select        = self._on_poly_selected,
-            on_class_changed      = self._on_seg_class_changed,
-            on_opacity_change     = self._on_seg_opacity_changed,
-            on_auto_seg_click     = self._run_yolo_seg,
-            on_auto_seg_all_click = self._run_yolo_seg_all,
+            on_save_click                  = self._save,
+            on_clear_click                 = self._clear_seg_frame,
+            on_delete_poly                 = self._delete_polygon,
+            on_poly_select                 = self._on_poly_selected,
+            on_class_changed               = self._on_seg_class_changed,
+            on_opacity_change              = self._on_seg_opacity_changed,
+            on_auto_seg_click              = self._run_yolo_seg,
+            on_auto_seg_all_click          = self._run_yolo_seg_all,
+            on_accept_poly_suggestion      = lambda idx: self._accept_suggestion(idx, is_polygon=True),
+            on_accept_all_poly_suggestions = lambda: self._accept_all_suggestions(is_polygon=True),
+            on_reject_all_poly_suggestions = lambda: self._reject_all_suggestions(is_polygon=True),
         )
         # seg_panel is shown/hidden by the polygon mode button in video_player
         self.seg_panel.pack_forget()
@@ -442,19 +448,57 @@ class MainWindow(tk.Frame):
         self._run_in_thread(_work, _done, _err)
 
     # ── frame change callback ─────────────────────────────────────────────────
-    def _on_frame_change(self, frame_index: int, bgr_frame):
+    # ── frame change & overlay refresh ────────────────────────────────────────
+    def _refresh_current_frame_overlays(self):
         if self.manager is None:
             return
-        ann      = self.manager.get_annotation(frame_index)
-        boxes    = ann.boxes    if ann else []
+        idx = self.player.current_frame_index
+        ann = self.manager.get_annotation(idx)
+        boxes = ann.boxes if ann else []
+        suggs = ann.suggested_boxes if ann else []
         polygons = ann.polygons if ann else []
+        sugg_polys = ann.suggested_polygons if ann else []
+
         self.player.set_overlay_boxes(boxes)
+        self.player.set_overlay_suggested_boxes(suggs)
         self.player.set_overlay_polygons(polygons)
-        self.ann_panel.update_boxes(boxes, self.manager.yolo.class_names)
-        # refresh seg panel polygon list
+        self.player.set_overlay_suggested_polygons(sugg_polys)
+
+        self.ann_panel.update_boxes(boxes, self.manager.yolo.class_names, suggested_boxes=suggs)
         class_names = list(self.manager.yolo.class_names.values())
         self.seg_panel.update_polygons(polygons, class_names)
         self._sync_color_map()
+        self._refresh_ann_count()
+
+    def _on_frame_change(self, frame_index: int, bgr_frame):
+        self._refresh_current_frame_overlays()
+
+    # ── AI suggestion verification callbacks ──────────────────────────────────
+    def _accept_suggestion(self, sugg_index: int, is_polygon: bool = False):
+        if self.manager is None:
+            return
+        idx = self.player.current_frame_index
+        accepted = self.manager.accept_suggestion(idx, sugg_index, is_polygon=is_polygon)
+        if accepted:
+            self._refresh_current_frame_overlays()
+            self._set_status(f"Accepted AI suggestion [{sugg_index}] — '{accepted.class_name}'.")
+
+    def _accept_all_suggestions(self, is_polygon: bool = False):
+        if self.manager is None:
+            return
+        idx = self.player.current_frame_index
+        conf = self.ann_panel.get_confidence_threshold()
+        count = self.manager.accept_all_suggestions(frame_index=idx, min_confidence=conf, is_polygon=is_polygon)
+        self._refresh_current_frame_overlays()
+        self._set_status(f"Accepted {count} AI suggestion(s) on index {idx + 1}.")
+
+    def _reject_all_suggestions(self, is_polygon: bool = False):
+        if self.manager is None:
+            return
+        idx = self.player.current_frame_index
+        self.manager.reject_all_suggestions(frame_index=idx, is_polygon=is_polygon)
+        self._refresh_current_frame_overlays()
+        self._set_status(f"Rejected all AI suggestions on index {idx + 1}.")
 
     # ── mode change callback (panel swap) ─────────────────────────────────────
     def _on_mode_change(self, mode: str) -> None:
@@ -483,7 +527,6 @@ class MainWindow(tk.Frame):
             return
         from models.annotation_model import PolygonAnnotation
         idx      = self.player.current_frame_index
-        # Use class from seg_panel (semantic) if polygon mode active
         cls_name = self.seg_panel.get_selected_class()
         class_names = self.manager.yolo.class_names
         cls_id   = next(
@@ -494,15 +537,9 @@ class MainWindow(tk.Frame):
             class_id=cls_id, class_name=cls_name, points=points
         )
         self.manager.add_polygon(idx, poly)
-        ann = self.manager.get_annotation(idx)
-        self.player.set_overlay_polygons(ann.polygons)
-        self._sync_color_map()
-        self.seg_panel.update_polygons(
-            ann.polygons, list(class_names.values())
-        )
+        self._refresh_current_frame_overlays()
         self._set_status(
-            f"Polygon added to frame {idx + 1} — '{cls_name}', "
-            f"{len(points)} pts. Total: {len(ann.polygons)} polygon(s)."
+            f"Polygon added to frame {idx + 1} — '{cls_name}', {len(points)} pts."
         )
 
     # ── seg panel callbacks ───────────────────────────────────────────────────
@@ -520,17 +557,17 @@ class MainWindow(tk.Frame):
         """Highlight the selected polygon in the canvas (future use)."""
         pass
 
-    def _delete_polygon(self, poly_index: int) -> None:
+    def _delete_polygon(self, poly_index: int, is_suggestion: bool = False) -> None:
         if not self._require_manager():
             return
         idx = self.player.current_frame_index
-        self.manager.remove_polygon(idx, poly_index)
-        ann = self.manager.get_annotation(idx)
-        self.player.set_overlay_polygons(ann.polygons)
-        self.seg_panel.update_polygons(
-            ann.polygons, list(self.manager.yolo.class_names.values())
-        )
-        self._set_status(f"Deleted polygon [{poly_index}] from frame {idx + 1}.")
+        if is_suggestion:
+            self.manager.reject_suggestion(idx, poly_index, is_polygon=True)
+            self._set_status(f"Rejected AI polygon suggestion [{poly_index}] from frame {idx + 1}.")
+        else:
+            self.manager.remove_polygon(idx, poly_index)
+            self._set_status(f"Deleted polygon [{poly_index}] from frame {idx + 1}.")
+        self._refresh_current_frame_overlays()
 
     def _clear_seg_frame(self) -> None:
         if not self._require_manager():
@@ -544,14 +581,11 @@ class MainWindow(tk.Frame):
             ):
                 return
         self.manager.clear_polygons(idx)
-        ann = self.manager.get_annotation(idx)
-        self.player.set_overlay_polygons(ann.polygons)
-        self.seg_panel.update_polygons([], [])
+        self._refresh_current_frame_overlays()
         self._set_status(f"Cleared all polygons on frame {idx + 1}.")
 
     def _sync_color_map(self) -> None:
         """Push current class→colour mapping into the canvas."""
-        # merge seg_panel class colours into the map
         for cls in self.seg_panel._classes:
             self._class_color_map[cls["name"]] = cls["color"]
         self.player.set_class_color_map(dict(self._class_color_map))
@@ -581,67 +615,75 @@ class MainWindow(tk.Frame):
 
         idx = self.player.current_frame_index
         self.manager.add_box(idx, box)
-
-        ann = self.manager.get_annotation(idx)
-        self.player.set_overlay_boxes(ann.boxes)
-        self.ann_panel.update_boxes(ann.boxes, self.manager.yolo.class_names)
+        self._refresh_current_frame_overlays()
         src_label = (
             "image" if self._source_type in ("image", "image_folder")
             else "frame"
         )
         self._set_status(
-            f"Manual box added — '{cls_name}' on {src_label} {idx + 1}. "
-            f"Total: {len(ann.boxes)} box(es)."
+            f"Manual box added — '{cls_name}' on {src_label} {idx + 1}."
         )
-        self._refresh_ann_count()
 
     # ── box edit / select callbacks ───────────────────────────────────────────
     def _on_box_edited(self, box_index: int,
                        x1_n: float, y1_n: float,
-                       x2_n: float, y2_n: float):
+                       x2_n: float, y2_n: float,
+                       is_suggestion: bool = False):
         if self.manager is None:
             return
         idx = self.player.current_frame_index
         ann = self.manager.get_annotation(idx)
-        if not ann or box_index >= len(ann.boxes):
+        if not ann:
             return
-        box = ann.boxes[box_index]
-        box.x_center = (x1_n + x2_n) / 2
-        box.y_center = (y1_n + y2_n) / 2
-        box.width    = x2_n - x1_n
-        box.height   = y2_n - y1_n
-        ann.is_annotated = bool(ann.boxes)
-        self.ann_panel.update_boxes(ann.boxes, self.manager.yolo.class_names)
-        self._set_status(
-            f"Edited box [{box_index}] — '{box.class_name}' "
-            f"({box.width:.2f}×{box.height:.2f})"
-        )
 
-    def _on_box_selected_in_canvas(self, box_index):
+        if is_suggestion:
+            if 0 <= box_index < len(ann.suggested_boxes):
+                box = ann.suggested_boxes[box_index]
+                box.x_center = (x1_n + x2_n) / 2
+                box.y_center = (y1_n + y2_n) / 2
+                box.width    = x2_n - x1_n
+                box.height   = y2_n - y1_n
+                box.confidence = 1.0
+                ann.accept_suggested_box(box_index)
+                self._set_status(f"Edited & accepted suggestion [{box_index}] → '{box.class_name}'")
+        else:
+            if 0 <= box_index < len(ann.boxes):
+                box = ann.boxes[box_index]
+                box.x_center = (x1_n + x2_n) / 2
+                box.y_center = (y1_n + y2_n) / 2
+                box.width    = x2_n - x1_n
+                box.height   = y2_n - y1_n
+                ann.is_annotated = bool(ann.boxes)
+                self._set_status(f"Edited box [{box_index}] — '{box.class_name}'")
+        self._refresh_current_frame_overlays()
+
+    def _on_box_selected_in_canvas(self, box_index, is_suggestion: bool = False):
         """Sync canvas → listbox highlight."""
-        self.ann_panel.set_selected_box(box_index)
+        self.ann_panel.set_selected_box(box_index, is_suggestion=is_suggestion)
 
-    def _on_box_selected_in_list(self, box_index):
+    def _on_box_selected_in_list(self, box_index, is_suggestion: bool = False):
         """Sync listbox → canvas highlight."""
-        self.player.set_selected_box(box_index)
+        self.player.set_selected_box(box_index, is_suggestion=is_suggestion)
 
     # ── delete selected box ───────────────────────────────────────────────────
-    def _delete_box(self, box_index: int):
+    def _delete_box(self, box_index: int, is_suggestion: bool = False):
         if not self._require_manager():
             return
         idx = self.player.current_frame_index
-        self.manager.remove_box(idx, box_index)
-        ann = self.manager.get_annotation(idx)
-        self.player.set_overlay_boxes(ann.boxes)
-        self.ann_panel.update_boxes(ann.boxes, self.manager.yolo.class_names)
-        self._set_status(f"Deleted box [{box_index}] from index {idx + 1}.")
-        self._refresh_ann_count()
+        if is_suggestion:
+            self.manager.reject_suggestion(idx, box_index)
+            self._set_status(f"Rejected AI suggestion [{box_index}] from index {idx + 1}.")
+        else:
+            self.manager.remove_box(idx, box_index)
+            self._set_status(f"Deleted box [{box_index}] from index {idx + 1}.")
+        self._refresh_current_frame_overlays()
 
     # ── confidence change ─────────────────────────────────────────────────────
     def _on_conf_change(self, val: float):
         if self.manager:
             self.manager.yolo.confidence = val
             log.debug(f"Confidence updated → {val:.2f}")
+            self._refresh_current_frame_overlays()
 
     # ── model change ──────────────────────────────────────────────────────────
     def _on_model_change(self, model: str):
@@ -681,20 +723,16 @@ class MainWindow(tk.Frame):
         def _work():
             ann = self.manager.auto_annotate_frame(idx)
             if cls_filter:
-                ann.boxes = [
-                    b for b in ann.boxes
+                ann.suggested_boxes = [
+                    b for b in ann.suggested_boxes
                     if b.class_name.lower() in cls_filter
                 ]
-                ann.is_annotated = bool(ann.boxes)
             return ann
 
         def _done(ann):
-            self.player.set_overlay_boxes(ann.boxes)
-            self.ann_panel.update_boxes(
-                ann.boxes, self.manager.yolo.class_names
-            )
+            self._refresh_current_frame_overlays()
             self._set_status(
-                f"YOLO: {len(ann.boxes)} object(s) at index {idx + 1}."
+                f"YOLO: {len(ann.suggested_boxes)} AI suggestion(s) at index {idx + 1}. Review and verify."
             )
             self._refresh_ann_count()
 
@@ -709,18 +747,6 @@ class MainWindow(tk.Frame):
         cls_filter = self.ann_panel.get_class_filter()
         self.manager.yolo.confidence = conf
 
-        manual_count = sum(
-            1 for ann in self.manager._annotations.values()
-            if ann and ann.boxes and any(b.confidence >= 1.0 for b in ann.boxes)
-        )
-        if manual_count > 0:
-            if not messagebox.askyesno(
-                "Overwrite manual annotations?",
-                f"{manual_count} frame(s) have manual annotations.\n"
-                "YOLO All will add detections on top of those.\nContinue?",
-            ):
-                return
-
         self._set_status("Running YOLO on all frames…")
         log.info(f"YOLO all — conf={conf}, filter={cls_filter}")
 
@@ -733,15 +759,15 @@ class MainWindow(tk.Frame):
             self.manager.auto_annotate_all(progress_callback=_progress)
             if cls_filter:
                 for ann in self.manager._annotations.values():
-                    ann.boxes = [
-                        b for b in ann.boxes
+                    ann.suggested_boxes = [
+                        b for b in ann.suggested_boxes
                         if b.class_name.lower() in cls_filter
                     ]
-                    ann.is_annotated = bool(ann.boxes)
-            return self.manager.annotated_count
+            return self.manager.total_count
 
         def _done(count):
-            self._set_status(f"YOLO complete — {count}/{total} annotated.")
+            self._refresh_current_frame_overlays()
+            self._set_status(f"YOLO AI suggestions generated across all frames. Review & verify.")
             self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)
@@ -764,20 +790,16 @@ class MainWindow(tk.Frame):
         def _work():
             ann = self.manager.auto_annotate_polygons_frame(idx)
             if cls_filter:
-                ann.polygons = [
-                    p for p in ann.polygons
+                ann.suggested_polygons = [
+                    p for p in ann.suggested_polygons
                     if p.class_name.lower() in cls_filter
                 ]
-                ann.is_annotated = bool(ann.polygons)
             return ann
 
         def _done(ann):
-            self.player.set_overlay_polygons(ann.polygons)
-            self.seg_panel.update_polygons(
-                ann.polygons, list(self.manager.yolo.class_names.values())
-            )
+            self._refresh_current_frame_overlays()
             self._set_status(
-                f"YOLO Seg: {len(ann.polygons)} polygon(s) auto-generated at index {idx + 1}."
+                f"YOLO Seg: {len(ann.suggested_polygons)} polygon suggestion(s) at index {idx + 1}."
             )
             self._refresh_ann_count()
 
@@ -808,23 +830,18 @@ class MainWindow(tk.Frame):
             self.manager.auto_annotate_polygons_all(progress_callback=_progress)
             if cls_filter:
                 for ann in self.manager._annotations.values():
-                    ann.polygons = [
-                        p for p in ann.polygons
+                    ann.suggested_polygons = [
+                        p for p in ann.suggested_polygons
                         if p.class_name.lower() in cls_filter
                     ]
-                    ann.is_annotated = bool(ann.polygons)
-            return self.manager.annotated_count
+            return self.manager.total_count
 
         def _done(count):
-            idx = self.player.current_frame_index
-            ann = self.manager.get_annotation(idx)
-            if ann:
-                self.player.set_overlay_polygons(ann.polygons)
-                self.seg_panel.update_polygons(
-                    ann.polygons, list(self.manager.yolo.class_names.values())
-                )
-            self._set_status(f"YOLO polygon auto-annotation complete — {count}/{total} annotated.")
+            self._refresh_current_frame_overlays()
+            self._set_status(f"YOLO polygon AI suggestions complete. Review and verify.")
             self._refresh_ann_count()
+
+        self._run_in_thread(_work, _done)
 
         self._run_in_thread(_work, _done)
 
