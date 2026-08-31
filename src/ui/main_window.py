@@ -742,7 +742,6 @@ class MainWindow(tk.Frame):
     def _run_yolo_all(self):
         if not self._require_manager() or self._busy:
             return
-        total      = self.manager.total_count
         conf       = self.ann_panel.get_confidence_threshold()
         cls_filter = self.ann_panel.get_class_filter()
         self.manager.yolo.confidence = conf
@@ -767,7 +766,7 @@ class MainWindow(tk.Frame):
 
         def _done(count):
             self._refresh_current_frame_overlays()
-            self._set_status(f"YOLO AI suggestions generated across all frames. Review & verify.")
+            self._set_status("YOLO AI suggestions generated across all frames. Review & verify.")
             self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)
@@ -809,7 +808,6 @@ class MainWindow(tk.Frame):
     def _run_yolo_seg_all(self):
         if not self._require_manager() or self._busy:
             return
-        total = self.manager.total_count
         conf  = self.ann_panel.get_confidence_threshold()
         cls_filter = self.ann_panel.get_class_filter()
         selected_model = self.seg_panel.get_model_name()
@@ -838,7 +836,7 @@ class MainWindow(tk.Frame):
 
         def _done(count):
             self._refresh_current_frame_overlays()
-            self._set_status(f"YOLO polygon AI suggestions complete. Review and verify.")
+            self._set_status("YOLO polygon AI suggestions complete. Review and verify.")
             self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)
@@ -880,14 +878,18 @@ class MainWindow(tk.Frame):
             docs = os.path.expanduser("~")
         src_name = self.manager.f_store.video_name or "dataset"
         default_out = os.path.join(docs, "labeled_img", src_name)
-        dlg = ExportDialog(self.master, default_dir=default_out)
+        dlg = ExportDialog(
+            self.master,
+            default_dir=default_out,
+            total_annotated=self.manager.annotated_count,
+        )
         if not dlg.result:
             return
 
         fmt     = dlg.result["format"]
         out_dir = dlg.result["output_dir"]
         self._set_status(f"Exporting as {fmt.upper()} → {out_dir}…")
-        log.info(f"Export started — fmt={fmt}, out={out_dir}")
+        log.info(f"Export started — fmt={fmt}, out={out_dir}, settings={dlg.result}")
 
         exporter = DatasetExporter(
             annotations = self.manager._annotations,
@@ -897,26 +899,49 @@ class MainWindow(tk.Frame):
 
         def _progress(done, total):
             self.after(0, lambda d=done, t=total: self._set_status(
-                f"Exporting… {d}/{t}"
+                f"Exporting dataset… {d}/{t}"
             ))
 
         def _work():
-            return exporter.export(fmt=fmt, progress_callback=_progress)
+            return exporter.export(
+                fmt=fmt,
+                progress_callback=_progress,
+                split=dlg.result.get("split", False),
+                train_ratio=dlg.result.get("train_ratio", 0.70),
+                val_ratio=dlg.result.get("val_ratio", 0.20),
+                test_ratio=dlg.result.get("test_ratio", 0.10),
+                seed=dlg.result.get("seed", 42),
+                use_random_seed=dlg.result.get("use_random_seed", False),
+            )
 
         def _done(summary: dict):
-            self._set_status(
-                f"Export complete — {summary['images']} images, "
-                f"{summary['labels']} labels, "
-                f"{len(summary['classes'])} class(es) → {summary['output_dir']}"
-            )
-            messagebox.showinfo(
-                "Export complete",
-                f"Format : {summary['format'].upper()}\n"
-                f"Images : {summary['images']}\n"
-                f"Labels : {summary['labels']}\n"
-                f"Classes: {', '.join(summary['classes'])}\n\n"
-                f"Saved to:\n{summary['output_dir']}",
-            )
+            if summary.get("format") == "yolo_split":
+                msg = (
+                    f"Format : YOLO Dataset Split\n"
+                    f"Total Images : {summary['total_images']}\n"
+                    f"  ├─ Train : {summary['train_images']}\n"
+                    f"  ├─ Val   : {summary['val_images']}\n"
+                    f"  └─ Test  : {summary['test_images']}\n"
+                    f"Classes ({len(summary['classes'])}): {', '.join(summary['classes'])}\n\n"
+                    f"Saved to:\n{summary['output_dir']}"
+                )
+                self._set_status(
+                    f"Dataset Split complete — Train: {summary['train_images']}, "
+                    f"Val: {summary['val_images']}, Test: {summary['test_images']} → {summary['output_dir']}"
+                )
+            else:
+                msg = (
+                    f"Format : {summary['format'].upper()}\n"
+                    f"Images : {summary['images']}\n"
+                    f"Labels : {summary['labels']}\n"
+                    f"Classes: {', '.join(summary['classes'])}\n\n"
+                    f"Saved to:\n{summary['output_dir']}"
+                )
+                self._set_status(
+                    f"Export complete — {summary['images']} images, "
+                    f"{summary['labels']} labels → {summary['output_dir']}"
+                )
+            messagebox.showinfo("Export Complete", msg)
 
         def _err(exc):
             messagebox.showerror("Export Error", str(exc))

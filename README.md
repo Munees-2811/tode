@@ -175,23 +175,28 @@ Models are **auto-downloaded** on first use. To use a local `.pt` or `.onnx` fil
 
 ---
 
-### Exporting
+### Exporting & Dataset Splitting
 
-Click **📤 Export** and choose a format and output folder.
+Click **📤 Export** to open the export options and split generator.
 
 | Format | Output |
 |---|---|
-| **YOLO** | `images/` + `labels/` + `data.yaml` — ready for `yolo train` |
-| **COCO** | `annotations.json` (images, annotations, categories) |
+| **YOLO Dataset Split** | `train/`, `val/`, `test/` (70% / 20% / 10% default) with `images/` & `labels/` + `data.yaml` |
+| **YOLO Standard** | `images/` + `labels/` + `classes.txt` + `data.yaml` |
+| **COCO** | `images/` + `annotations.json` |
 | **Pascal VOC** | One XML per image |
 | **CSV** | One row per bounding box |
 | **JSON** | Custom JSON with all annotation types |
 
-Only annotated frames are exported. Frame files are renumbered sequentially (`img_1`, `img_2`, …) so images and labels always match 1-to-1.
+**Automatic Train / Validation / Test Split:**
+- Configurable split ratios (Default: **70% Train**, **20% Val**, **10% Test**)
+- Live preview of image count & percentages before generating
+- Reproducible random splits with fixed or random seed controls
+- Automatic generation of YOLO `data.yaml` referencing `train/`, `val/`, `test/` paths and class mapping
 
-**Train immediately after export (YOLO format):**
+**Train immediately after dataset generation:**
 ```bash
-yolo train data=export_dir/data.yaml model=yolo26x.pt epochs=100
+yolo train data=dataset_dir/data.yaml model=yolo26x.pt epochs=100
 ```
 
 ---

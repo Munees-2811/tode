@@ -12,17 +12,20 @@ from dataclasses import dataclass
 class ExportConfig:
     """All settings needed to drive an export operation."""
 
-    output_dir:  str
-    format:      str = "YOLO TXT"
-    train_ratio: float = 0.8
-    copy_images: bool  = False
-    split:       bool  = True
+    output_dir:      str
+    format:          str = "yolo_split"
+    split:           bool = True
+    train_ratio:     float = 0.70
+    test_ratio:      float = 0.10
+    seed:            int = 42
+    use_random_seed: bool = False
+    copy_images:     bool = True
 
     def __post_init__(self) -> None:
-        if not 0.0 < self.train_ratio <= 1.0:
+        if not (0.0 < self.train_ratio <= 1.0):
             raise ValueError("train_ratio must be in (0, 1]")
         if not self.output_dir:
             raise ValueError("output_dir must not be empty")
 
     def val_ratio(self) -> float:
-        return 1.0 - self.train_ratio
+        return max(0.0, 1.0 - self.train_ratio - self.test_ratio)
