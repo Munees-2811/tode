@@ -28,6 +28,11 @@ _ULTRALYTICS_MODELS = [
     "yolov8x", "yolov8l", "yolov8m", "yolov8s", "yolov8n",
 ]
 
+# RT-DETR transformer models — auto-downloaded on first use
+_RTDETR_MODELS = [
+    "rtdetr-l", "rtdetr-x", "rtdetr-resnet50", "rtdetr-resnet101",
+]
+
 # Tode custom / branded models — ONNX files in weights/, AGPL-free at runtime.
 # To add your own model:
 #   1. Train YOLO: yolo train data=dataset.yaml model=yolo26n.pt
@@ -39,9 +44,10 @@ _TODE_MODELS = [
     os.path.join(WEIGHTS_DIR, "todev1.onnx"),
 ]
 
-# Full catalogue exposed to the UI (Tode models first)
+# Full catalogue exposed to the UI (Tode models first, then RT-DETR, then YOLO)
 YOLO_MODELS = (
     [m for m in _TODE_MODELS if os.path.isfile(m)]  # only show if file exists
+    + _RTDETR_MODELS
     + _ULTRALYTICS_MODELS
 )
 YOLO_DEFAULT_MODEL = "yolo26x"

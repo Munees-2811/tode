@@ -25,11 +25,16 @@ log = get_logger("core.YOLOAnnotator")
 
 
 def _make_detector(model_path: str, confidence: float, iou: float) -> BaseDetector:
-    """Pick the right backend based on file extension."""
-    if model_path.endswith(".onnx"):
+    """Pick the right backend based on file extension and model architecture."""
+    norm_path = model_path.lower()
+    if norm_path.endswith(".onnx"):
         from core.detectors.onnx_detector import ONNXDetector
         log.info(f"Backend selected: ONNX Runtime  ({model_path})")
         d = ONNXDetector(confidence=confidence, iou=iou)
+    elif "rtdetr" in norm_path or "rt-detr" in norm_path:
+        from core.detectors.rtdetr_detector import RTDETRDetector
+        log.info(f"Backend selected: RT-DETR  ({model_path})")
+        d = RTDETRDetector(confidence=confidence, iou=iou)
     else:
         from core.detectors.ultralytics_detector import UltralyticsDetector
         log.info(f"Backend selected: Ultralytics  ({model_path})")
@@ -89,7 +94,7 @@ class YOLOAnnotator:
 
     def reload(self, model_name_or_path: str):
         """
-        Swap model at runtime.  If the extension changed (.pt ↔ .onnx) a
+        Swap model at runtime. If backend changed (YOLO ↔ RT-DETR ↔ ONNX), a
         new backend is created transparently.
         """
         path = model_name_or_path
@@ -97,13 +102,11 @@ class YOLOAnnotator:
             path = path + ".pt"
 
         with self._lock:
-            # Rebuild backend if extension changed
-            current_is_onnx = self._model_path.endswith(".onnx")
-            new_is_onnx     = path.endswith(".onnx")
-            if current_is_onnx != new_is_onnx:
-                self._detector = _make_detector(
-                    path, self._confidence, self._iou
-                )
+            # Rebuild backend if detector type/backend changed
+            current_type = type(self._detector)
+            temp_detector = _make_detector(path, self._confidence, self._iou)
+            if type(temp_detector) is not current_type:
+                self._detector = temp_detector
             else:
                 self._detector.confidence = self._confidence
                 self._detector.iou        = self._iou
