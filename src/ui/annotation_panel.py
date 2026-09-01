@@ -177,25 +177,26 @@ class AnnotationPanel(tk.Frame):
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
             fill=tk.X, padx=10, pady=(10, 6))
 
-        yolo_one = tk.Button(
+        self.detect_one_btn = tk.Button(
             parent, text="⚡  YOLO This Frame",
             command=self._on_yolo,
             bg=ACCENT, fg="white", relief=tk.FLAT,
             padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
             activebackground="#9d8fff", activeforeground="white", bd=0,
         )
-        yolo_one.pack(fill=tk.X, padx=10, pady=(0, 3))
-        _hover_btn(yolo_one, ACCENT, "#9d8fff")
+        self.detect_one_btn.pack(fill=tk.X, padx=10, pady=(0, 3))
+        _hover_btn(self.detect_one_btn, ACCENT, "#9d8fff")
 
-        yolo_all = tk.Button(
+        self.detect_all_btn = tk.Button(
             parent, text="🔁  YOLO All Frames",
             command=self._on_yolo_all,
             bg="#5a4fbf", fg="white", relief=tk.FLAT,
             padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
             activebackground="#7a6adf", activeforeground="white", bd=0,
         )
-        yolo_all.pack(fill=tk.X, padx=10, pady=(0, 6))
-        _hover_btn(yolo_all, "#5a4fbf", "#7a6adf")
+        self.detect_all_btn.pack(fill=tk.X, padx=10, pady=(0, 6))
+        _hover_btn(self.detect_all_btn, "#5a4fbf", "#7a6adf")
+        self._update_detect_button_labels()
 
         sugg_hdr = tk.Label(
             parent, text="AI SUGGESTIONS ACTIONS",
@@ -367,7 +368,21 @@ class AnnotationPanel(tk.Frame):
         _hover_btn(clear_btn, "#7a3333", "#a04040")
 
     # ── model callbacks ───────────────────────────────────────────────────────
+    def _update_detect_button_labels(self):
+        m = self.model_var.get().lower()
+        if "rtdetr" in m or "rt-detr" in m:
+            prefix = "RT-DETR"
+        elif "yolo" in m:
+            prefix = "YOLO"
+        else:
+            prefix = "Detect"
+        if hasattr(self, "detect_one_btn"):
+            self.detect_one_btn.config(text=f"⚡  {prefix} This Frame")
+        if hasattr(self, "detect_all_btn"):
+            self.detect_all_btn.config(text=f"🔁  {prefix} All Frames")
+
     def _on_model_selected(self):
+        self._update_detect_button_labels()
         if self._on_model_change:
             self._on_model_change(self.model_var.get())
 
@@ -383,6 +398,7 @@ class AnnotationPanel(tk.Frame):
         )
         if path:
             self.model_var.set(path)
+            self._update_detect_button_labels()
             current = list(self._model_combo["values"])
             if path not in current:
                 self._model_combo["values"] = [path] + current

@@ -9,6 +9,7 @@ from core.exporter import DatasetExporter
 from core.frame_extractor import FrameExtractor
 from core.image_frame_extractor import ImageFrameExtractor
 from core.image_loader import ImageLoader
+from core.quality_checker import QualityChecker
 from core.video_loader import VideoLoader
 from core.yolo_annotator import YOLOAnnotator
 from models.annotation_model import BoundingBox
@@ -17,6 +18,7 @@ from storage.label_storage import LabelStorage
 from ui.annotation_panel import AnnotationPanel
 from ui.export_dialog import ExportDialog
 from ui.log_viewer import LogViewer
+from ui.quality_report_dialog import QualityReportDialog
 from ui.segmentation_panel import SegmentationPanel
 from ui.source_dialog import SourceDialog
 from ui.video_player import VideoPlayer
@@ -55,6 +57,7 @@ class MainWindow(tk.Frame):
         self.manager: AnnotationManager | None = None
         self._busy        = False
         self._log_viewer  = None
+        self._quality_dialog = None
         self._source_type = None
         self._build_ui()
         log.info("MainWindow initialised")
@@ -147,6 +150,7 @@ class MainWindow(tk.Frame):
         sep()
         btn(bar, "💾  Save",   self._save,            bg="#2d7a4e", hover="#3da060")
         btn(bar, "📤  Export", self._export_dataset,  bg="#1f7a8c", hover="#2a9aae")
+        btn(bar, "🔍  Quality Check", self._run_quality_check, bg="#d97706", hover="#f59e0b")
         sep()
         btn(bar, "📋  Logs",   self._show_logs,       bg="#3a4a6a", hover="#4a5a7a")
 
@@ -229,6 +233,7 @@ class MainWindow(tk.Frame):
             "<Escape>":    lambda _e: self.player.set_view_mode(),
             "<Control-s>": lambda _e: self._save(),
             "<Control-e>": lambda _e: self._export_dataset(),
+            "<Control-q>": lambda _e: self._run_quality_check(),
             "<Control-o>": lambda _e: self._open_source(),
             "<Delete>":    lambda _e: self._clear_frame(),
             "y":           lambda _e: self._handle_y_key(),
@@ -871,6 +876,23 @@ class MainWindow(tk.Frame):
             )
             return
 
+        # Pre-export automatic quality check
+        checker = QualityChecker(
+            annotations=self.manager._annotations,
+            class_names=self.manager.yolo.class_names,
+        )
+        report = checker.run()
+        if report.error_count > 0 or report.warning_count > 0:
+            msg = (
+                f"Quality Check found:\n"
+                f"  • {report.error_count} Error(s)\n"
+                f"  • {report.warning_count} Warning(s)\n\n"
+                f"Would you like to review and fix these issues before exporting?"
+            )
+            if messagebox.askyesno("Quality Check Warning", msg, icon="warning"):
+                self._show_quality_report(report)
+                return
+
         # Default to ~/Documents/labeled_img/<source_name>/ so exported
         # datasets land somewhere users can find easily.
         docs = os.path.join(os.path.expanduser("~"), "Documents")
@@ -948,6 +970,54 @@ class MainWindow(tk.Frame):
             self._set_status("Export failed.")
 
         self._run_in_thread(_work, _done, _err)
+
+    # ── quality check ─────────────────────────────────────────────────────────
+    def _run_quality_check(self):
+        if not self._require_manager() or self._busy:
+            return
+
+        checker = QualityChecker(
+            annotations=self.manager._annotations,
+            class_names=self.manager.yolo.class_names,
+        )
+        report = checker.run()
+        self._show_quality_report(report)
+
+    def _show_quality_report(self, report):
+        def _on_jump(frame_index: int, ann_type: str, ann_idx: int):
+            if self.manager is None:
+                return
+            if frame_index in self.player._indices:
+                pos = self.player._indices.index(frame_index)
+                self.player._goto(pos)
+
+            if ann_type == "polygon":
+                self.player.set_polygon_mode()
+                if ann_idx >= 0 and ann_idx < len(self.seg_panel._classes):
+                    pass
+            elif ann_type == "box":
+                self.player.set_view_mode()
+                if ann_idx >= 0:
+                    self._on_box_selected_in_list(ann_idx)
+
+        if self._quality_dialog is None or not self._quality_dialog.winfo_exists():
+            self._quality_dialog = QualityReportDialog(
+                self.master,
+                report=report,
+                on_jump=_on_jump,
+                on_rerun=self._run_quality_check,
+            )
+            log.info("Quality report dialog opened")
+        else:
+            self._quality_dialog.update_report(report)
+            self._quality_dialog.deiconify()
+            self._quality_dialog.lift()
+
+        valid_count = report.valid_boxes + report.valid_polygons
+        self._set_status(
+            f"Quality Check: {report.error_count} error(s), "
+            f"{report.warning_count} warning(s), {valid_count} valid annotation(s)."
+        )
 
     # ── clear current frame ───────────────────────────────────────────────────
     def _clear_frame(self):
