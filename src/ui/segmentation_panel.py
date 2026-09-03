@@ -262,24 +262,14 @@ class SegmentationPanel(tk.Frame):
         del_row = tk.Frame(self, bg=BG_PANEL)
         del_row.pack(fill=tk.X, padx=8, pady=(3, 0))
 
-        acc_poly_btn = tk.Button(
-            del_row, text="✔  Accept",
-            command=self._accept_selected_poly,
-            bg="#2d8a4e", fg="white", relief=tk.FLAT,
-            padx=6, pady=3, font=("Consolas", 8, "bold"), cursor="hand2",
-            activebackground="#3da060", activeforeground="white", bd=0,
-        )
-        acc_poly_btn.pack(side=tk.LEFT)
-        _hover_btn(acc_poly_btn, "#2d8a4e", "#3da060")
-
         del_poly_btn = tk.Button(
-            del_row, text="🗑  Delete",
+            del_row, text="🗑  Delete Polygon",
             command=self._delete_selected_poly,
             bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=6, pady=3, font=("Consolas", 8), cursor="hand2",
+            padx=6, pady=4, font=("Consolas", 8, "bold"), cursor="hand2",
             activebackground="#a04040", activeforeground="white", bd=0,
         )
-        del_poly_btn.pack(side=tk.RIGHT)
+        del_poly_btn.pack(fill=tk.X)
         _hover_btn(del_poly_btn, "#7a3333", "#a04040")
 
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=8, pady=(6, 4))
@@ -306,29 +296,6 @@ class SegmentationPanel(tk.Frame):
         )
         auto_all_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(2, 0))
         _hover_btn(auto_all_btn, "#4a3a8a", "#6a5aaf")
-
-        sugg_btn_row = tk.Frame(self, bg=BG_PANEL)
-        sugg_btn_row.pack(fill=tk.X, padx=8, pady=2)
-
-        acc_all_btn = tk.Button(
-            sugg_btn_row, text="✔ Accept All Suggs",
-            command=lambda: self._on_accept_all_polys and self._on_accept_all_polys(),
-            bg="#2d8a4e", fg="white", relief=tk.FLAT,
-            padx=4, pady=4, font=("Consolas", 8, "bold"), cursor="hand2",
-            activebackground="#3da060", activeforeground="white", bd=0,
-        )
-        acc_all_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
-        _hover_btn(acc_all_btn, "#2d8a4e", "#3da060")
-
-        rej_all_btn = tk.Button(
-            sugg_btn_row, text="✖ Reject All Suggs",
-            command=lambda: self._on_reject_all_polys and self._on_reject_all_polys(),
-            bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=4, pady=4, font=("Consolas", 8, "bold"), cursor="hand2",
-            activebackground="#a04040", activeforeground="white", bd=0,
-        )
-        rej_all_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(2, 0))
-        _hover_btn(rej_all_btn, "#7a3333", "#a04040")
 
         save_btn = tk.Button(
             self, text="💾  Save Annotations",
@@ -382,32 +349,21 @@ class SegmentationPanel(tk.Frame):
         self._poly_listbox.delete(0, tk.END)
         self._item_map.clear()
 
-        # Insert AI suggested polygons first
-        for i, poly in enumerate(suggested_polygons):
-            conf = f"{poly.confidence:.2f}"
-            row_idx = self._poly_listbox.size()
-            self._poly_listbox.insert(
-                tk.END,
-                f" 🤖 SUGG  {poly.class_name:<12} {len(poly.points):2d}pts {conf}",
-            )
-            self._poly_listbox.itemconfig(row_idx, fg="#aa66ff")
-            self._item_map.append((i, True))
-
-        # Insert confirmed polygons
+        # Insert annotated polygons
         for i, poly in enumerate(polygons):
             color = self._color_for(poly.class_name)
+            src   = "MAN" if poly.confidence >= 1.0 else "DET"
             conf  = f"{poly.confidence:.2f}" if poly.confidence < 1.0 else "  — "
             row_idx = self._poly_listbox.size()
             self._poly_listbox.insert(
                 tk.END,
-                f" ✏ MAN   {poly.class_name:<12} {len(poly.points):2d}pts {conf}",
+                f" ✏ {src:<4}  {poly.class_name:<12} {len(poly.points):2d}pts {conf}",
             )
             self._poly_listbox.itemconfig(row_idx, fg=color)
             self._item_map.append((i, False))
 
-        n = len(polygons) + len(suggested_polygons)
-        sugg_n = len(suggested_polygons)
-        self._stats_var.set(f"{n} poly{'s' if n != 1 else ''} ({sugg_n} sugg)")
+        n = len(polygons)
+        self._stats_var.set(f"{n} poly{'s' if n != 1 else ''}")
 
     def get_selected_class(self) -> str:
         """Return the currently highlighted class name."""

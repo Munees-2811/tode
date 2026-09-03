@@ -131,7 +131,7 @@ class AnnotationManager:
         return sorted(self._annotations.keys())
 
     def auto_annotate_frame(self, frame_index: int) -> FrameAnnotation:
-        log.debug(f"Auto-annotating frame {frame_index} (generating AI suggestions)")
+        log.debug(f"Auto-annotating frame {frame_index}")
         ann = self._annotations.get(frame_index)
         if ann is None:
             frame, saved_path = self.extractor.extract_single(frame_index)
@@ -140,7 +140,12 @@ class AnnotationManager:
         else:
             frame = self._read_frame_reliable(ann, frame_index)
 
+        manual_boxes = [b for b in ann.boxes if b.confidence >= 1.0]
+        ann.clear_boxes()
         ann.clear_suggested_boxes()
+        for b in manual_boxes:
+            ann.add_box(b)
+
         if frame is None:
             log.warning(
                 f"Frame {frame_index} could not be read — "
@@ -149,15 +154,15 @@ class AnnotationManager:
         else:
             boxes = self.yolo.annotate_frame(frame)
             for box in boxes:
-                ann.add_suggested_box(box)
+                ann.add_box(box)
         log.info(
-            f"Frame {frame_index} AI suggested — "
-            f"{len(ann.suggested_boxes)} suggestion(s)"
+            f"Frame {frame_index} auto-annotated — "
+            f"{len(ann.boxes)} box(es)"
         )
         return ann
 
     def auto_annotate_polygons_frame(self, frame_index: int) -> FrameAnnotation:
-        log.debug(f"Auto-annotating polygons on frame {frame_index} (generating AI suggestions)")
+        log.debug(f"Auto-annotating polygons on frame {frame_index}")
         ann = self._annotations.get(frame_index)
         if ann is None:
             frame, saved_path = self.extractor.extract_single(frame_index)
@@ -166,14 +171,19 @@ class AnnotationManager:
         else:
             frame = self._read_frame_reliable(ann, frame_index)
 
+        manual_polys = [p for p in ann.polygons if p.confidence >= 1.0]
+        ann.clear_polygons()
         ann.clear_suggested_polygons()
+        for p in manual_polys:
+            ann.add_polygon(p)
+
         if frame is None:
             log.warning(f"Frame {frame_index} could not be read — skipping polygon auto-annotation")
         else:
             polys = self.yolo.annotate_polygons_frame(frame)
             for poly in polys:
-                ann.add_suggested_polygon(poly)
-        log.info(f"Frame {frame_index} AI suggested polygons — {len(ann.suggested_polygons)} suggestion(s)")
+                ann.add_polygon(poly)
+        log.info(f"Frame {frame_index} auto-annotated polygons — {len(ann.polygons)} polygon(s)")
         return ann
 
     def _read_frame_reliable(self, ann: FrameAnnotation, frame_index: int):
@@ -242,27 +252,31 @@ class AnnotationManager:
             # Run batched YOLO; detector implementations may optimise this
             boxes_list = self.yolo.annotate_frames(frames)
 
-            # Apply detections back into suggestions
+            # Apply detections directly as annotations
             for rel_i, idx in enumerate(batch_idx):
                 ann = self._annotations.get(idx)
                 if ann is None:
                     ann = FrameAnnotation(frame_index=idx, frame_path=self.extractor.frame_path(idx))
                     self._annotations[idx] = ann
+                manual_boxes = [b for b in ann.boxes if b.confidence >= 1.0]
+                ann.clear_boxes()
                 ann.clear_suggested_boxes()
+                for b in manual_boxes:
+                    ann.add_box(b)
                 boxes = boxes_list[rel_i] if rel_i < len(boxes_list) else []
                 for box in boxes:
-                    ann.add_suggested_box(box)
+                    ann.add_box(box)
 
             # progress callback (converted to absolute)
             if progress_callback:
                 progress_callback(min(bstart + batch_size, total), total)
 
-        log.info("Bulk AI suggestion complete across all frames")
+        log.info("Bulk auto-annotation complete across all frames")
 
     def auto_annotate_polygons_all(self, progress_callback=None):
         indices = self.all_frame_indices()
         total = len(indices)
-        log.info(f"Auto-annotating polygons on all {total} frames (generating AI suggestions)…")
+        log.info(f"Auto-annotating polygons on all {total} frames…")
 
         batch_size = 8
         for bstart in range(0, total, batch_size):
@@ -286,15 +300,19 @@ class AnnotationManager:
                 if ann is None:
                     ann = FrameAnnotation(frame_index=idx, frame_path=self.extractor.frame_path(idx))
                     self._annotations[idx] = ann
+                manual_polys = [p for p in ann.polygons if p.confidence >= 1.0]
+                ann.clear_polygons()
                 ann.clear_suggested_polygons()
+                for p in manual_polys:
+                    ann.add_polygon(p)
                 polys = polys_list[rel_i] if rel_i < len(polys_list) else []
                 for poly in polys:
-                    ann.add_suggested_polygon(poly)
+                    ann.add_polygon(poly)
 
             if progress_callback:
                 progress_callback(min(bstart + batch_size, total), total)
 
-        log.info("Bulk polygon AI suggestion complete across all frames")
+        log.info("Bulk polygon auto-annotation complete across all frames")
 
     # ── AI Suggestion Verification APIs ───────────────────────────────────────
 
