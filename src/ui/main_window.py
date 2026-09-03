@@ -460,9 +460,7 @@ class MainWindow(tk.Frame):
         idx = self.player.current_frame_index
         ann = self.manager.get_annotation(idx)
         boxes = ann.boxes if ann else []
-        suggs = ann.suggested_boxes if ann else []
         polygons = ann.polygons if ann else []
-        sugg_polys = ann.suggested_polygons if ann else []
 
         self.player.set_overlay_boxes(boxes)
         self.player.set_overlay_suggested_boxes([])
