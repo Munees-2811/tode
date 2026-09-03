@@ -144,46 +144,56 @@ class TestAnnotationManagerSuggestions:
         mgr._annotations[0] = FrameAnnotation(0, frame_file)
         return mgr
 
-    def test_auto_annotate_frame_creates_suggestions(self, manager):
+    def test_auto_annotate_frame_directly_annotates(self, manager):
         ann = manager.auto_annotate_frame(0)
-        assert len(ann.suggested_boxes) == 1
-        assert len(ann.boxes) == 0
-        assert ann.suggested_boxes[0].class_name == "person"
-        assert not ann.is_annotated
+        assert len(ann.boxes) == 1
+        assert len(ann.suggested_boxes) == 0
+        assert ann.boxes[0].class_name == "person"
+        assert ann.is_annotated
 
-    def test_auto_annotate_polygons_frame_creates_suggestions(self, manager):
+    def test_auto_annotate_polygons_frame_directly_annotates(self, manager):
         ann = manager.auto_annotate_polygons_frame(0)
-        assert len(ann.suggested_polygons) == 1
-        assert len(ann.polygons) == 0
-        assert ann.suggested_polygons[0].class_name == "building"
+        assert len(ann.polygons) == 1
+        assert len(ann.suggested_polygons) == 0
+        assert ann.polygons[0].class_name == "building"
+        assert ann.is_annotated
+
+    def test_auto_annotate_preserves_manual_boxes(self, manager):
+        ann = manager.get_annotation(0)
+        ann.add_box(BoundingBox(1, "manual_car", 0.1, 0.1, 0.2, 0.2, confidence=1.0))
+        manager.auto_annotate_frame(0)
+        assert len(ann.boxes) == 2
+        classes = [b.class_name for b in ann.boxes]
+        assert "manual_car" in classes
+        assert "person" in classes
 
     def test_accept_suggestion_via_manager(self, manager):
-        manager.auto_annotate_frame(0)
+        ann = manager.get_annotation(0)
+        ann.add_suggested_box(BoundingBox(0, "person", 0.5, 0.5, 0.2, 0.2, confidence=0.88))
         accepted = manager.accept_suggestion(0, 0)
         assert accepted.class_name == "person"
-        ann = manager.get_annotation(0)
         assert len(ann.boxes) == 1
         assert len(ann.suggested_boxes) == 0
         assert ann.is_annotated
 
     def test_reject_suggestion_via_manager(self, manager):
-        manager.auto_annotate_frame(0)
+        ann = manager.get_annotation(0)
+        ann.add_suggested_box(BoundingBox(0, "person", 0.5, 0.5, 0.2, 0.2, confidence=0.88))
         rejected = manager.reject_suggestion(0, 0)
         assert rejected.class_name == "person"
-        ann = manager.get_annotation(0)
         assert len(ann.boxes) == 0
         assert len(ann.suggested_boxes) == 0
 
     def test_accept_and_reject_polygon_suggestion_via_manager(self, manager):
-        manager.auto_annotate_polygons_frame(0)
+        ann = manager.get_annotation(0)
+        ann.add_suggested_polygon(PolygonAnnotation(0, "building", [(0.1, 0.1), (0.4, 0.1), (0.4, 0.4)], confidence=0.92))
         accepted = manager.accept_suggestion(0, 0, is_polygon=True)
         assert accepted.class_name == "building"
-        ann = manager.get_annotation(0)
         assert len(ann.polygons) == 1
         assert len(ann.suggested_polygons) == 0
 
         # Now test reject
-        manager.auto_annotate_polygons_frame(0)
+        ann.add_suggested_polygon(PolygonAnnotation(0, "building", [(0.1, 0.1), (0.4, 0.1), (0.4, 0.4)], confidence=0.92))
         rejected = manager.reject_suggestion(0, 0, is_polygon=True)
         assert rejected.class_name == "building"
         assert len(ann.suggested_polygons) == 0

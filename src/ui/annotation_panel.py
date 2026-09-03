@@ -178,7 +178,7 @@ class AnnotationPanel(tk.Frame):
             fill=tk.X, padx=10, pady=(10, 6))
 
         self.detect_one_btn = tk.Button(
-            parent, text="⚡  YOLO This Frame",
+            parent, text="⚡  Annotate This Frame",
             command=self._on_yolo,
             bg=ACCENT, fg="white", relief=tk.FLAT,
             padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
@@ -188,7 +188,7 @@ class AnnotationPanel(tk.Frame):
         _hover_btn(self.detect_one_btn, ACCENT, "#9d8fff")
 
         self.detect_all_btn = tk.Button(
-            parent, text="🔁  YOLO All Frames",
+            parent, text="🔁  Annotate All Frames",
             command=self._on_yolo_all,
             bg="#5a4fbf", fg="white", relief=tk.FLAT,
             padx=8, pady=7, font=("Consolas", 9, "bold"), cursor="hand2",
@@ -197,35 +197,6 @@ class AnnotationPanel(tk.Frame):
         self.detect_all_btn.pack(fill=tk.X, padx=10, pady=(0, 6))
         _hover_btn(self.detect_all_btn, "#5a4fbf", "#7a6adf")
         self._update_detect_button_labels()
-
-        sugg_hdr = tk.Label(
-            parent, text="AI SUGGESTIONS ACTIONS",
-            bg=BG_PANEL, fg=ACCENT, font=("Consolas", 8, "bold"),
-        )
-        sugg_hdr.pack(pady=(6, 2), padx=10, anchor=tk.W)
-
-        sugg_btn_row = tk.Frame(parent, bg=BG_PANEL)
-        sugg_btn_row.pack(fill=tk.X, padx=10, pady=(0, 8))
-
-        acc_all_btn = tk.Button(
-            sugg_btn_row, text="✔ Accept All",
-            command=self._accept_all_suggestions,
-            bg="#2d8a4e", fg="white", relief=tk.FLAT,
-            padx=4, pady=5, font=("Consolas", 8, "bold"), cursor="hand2",
-            activebackground="#3da060", activeforeground="white", bd=0,
-        )
-        acc_all_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
-        _hover_btn(acc_all_btn, "#2d8a4e", "#3da060")
-
-        rej_all_btn = tk.Button(
-            sugg_btn_row, text="✖ Reject All",
-            command=self._reject_all_suggestions,
-            bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=4, pady=5, font=("Consolas", 8, "bold"), cursor="hand2",
-            activebackground="#a04040", activeforeground="white", bd=0,
-        )
-        rej_all_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(2, 0))
-        _hover_btn(rej_all_btn, "#7a3333", "#a04040")
 
     def _build_manual_tab(self, parent):
         tk.Label(
@@ -294,7 +265,7 @@ class AnnotationPanel(tk.Frame):
         hdr.pack(fill=tk.X, padx=8, pady=(4, 2))
 
         tk.Label(
-            hdr, text="BOXES & AI SUGGESTIONS",
+            hdr, text="BOXES",
             bg=BG_PANEL, fg="#888899", font=("Consolas", 7, "bold"),
         ).pack(side=tk.LEFT)
 
@@ -323,24 +294,14 @@ class AnnotationPanel(tk.Frame):
         del_row = tk.Frame(self, bg=BG_PANEL)
         del_row.pack(fill=tk.X, padx=8, pady=(3, 0))
 
-        acc_btn = tk.Button(
-            del_row, text="✔  Accept",
-            command=self._accept_selected,
-            bg="#2d8a4e", fg="white", relief=tk.FLAT,
-            padx=6, pady=3, font=("Consolas", 8, "bold"), cursor="hand2",
-            activebackground="#3da060", activeforeground="white", bd=0,
-        )
-        acc_btn.pack(side=tk.LEFT)
-        _hover_btn(acc_btn, "#2d8a4e", "#3da060")
-
         del_btn = tk.Button(
-            del_row, text="🗑  Delete",
+            del_row, text="🗑  Delete Box",
             command=self._delete_selected,
             bg="#7a3333", fg="white", relief=tk.FLAT,
-            padx=6, pady=3, font=("Consolas", 8), cursor="hand2",
+            padx=6, pady=4, font=("Consolas", 8, "bold"), cursor="hand2",
             activebackground="#a04040", activeforeground="white", bd=0,
         )
-        del_btn.pack(side=tk.RIGHT)
+        del_btn.pack(fill=tk.X)
         _hover_btn(del_btn, "#7a3333", "#a04040")
 
     def _build_bottom_buttons(self):
@@ -372,10 +333,8 @@ class AnnotationPanel(tk.Frame):
         m = self.model_var.get().lower()
         if "rtdetr" in m or "rt-detr" in m:
             prefix = "RT-DETR"
-        elif "yolo" in m:
-            prefix = "YOLO"
         else:
-            prefix = "Detect"
+            prefix = "Annotate"
         if hasattr(self, "detect_one_btn"):
             self.detect_one_btn.config(text=f"⚡  {prefix} This Frame")
         if hasattr(self, "detect_all_btn"):
@@ -486,35 +445,12 @@ class AnnotationPanel(tk.Frame):
         if names and self.selected_class_var.get() not in names:
             self.selected_class_var.set(names[0])
 
-        if suggested_boxes is None:
-            suggested_boxes = []
-
-        conf_thresh = self.get_confidence_threshold()
-        cls_filter = self.get_class_filter()
-
-        filtered_suggs = []
-        for i, box in enumerate(suggested_boxes):
-            if box.confidence >= conf_thresh:
-                if not cls_filter or box.class_name.lower() in cls_filter:
-                    filtered_suggs.append((i, box))
-
         self.listbox.delete(0, tk.END)
         self._item_map.clear()
 
-        # Insert AI Suggestions first (purple)
-        for orig_i, box in filtered_suggs:
-            conf = f"{box.confidence:.2f}"
-            row_idx = self.listbox.size()
-            self.listbox.insert(
-                tk.END,
-                f" 🤖 SUGG  {box.class_name:<12} {conf}",
-            )
-            self.listbox.itemconfig(row_idx, fg="#aa66ff")
-            self._item_map.append((orig_i, True))
-
-        # Insert confirmed/manual boxes (green)
+        # Insert annotated boxes (green)
         for i, box in enumerate(boxes):
-            src  = "MAN" if box.confidence >= 1.0 else "CONF"
+            src  = "MAN" if box.confidence >= 1.0 else "DET"
             conf = f"{box.confidence:.2f}" if box.confidence < 1.0 else "  — "
             row_idx = self.listbox.size()
             self.listbox.insert(
@@ -524,9 +460,8 @@ class AnnotationPanel(tk.Frame):
             self.listbox.itemconfig(row_idx, fg="#55cc77")
             self._item_map.append((i, False))
 
-        total_n = len(boxes) + len(filtered_suggs)
-        sugg_n = len(filtered_suggs)
-        self.stats_var.set(f"{total_n} box{'es' if total_n != 1 else ''} ({sugg_n} sugg)")
+        total_n = len(boxes)
+        self.stats_var.set(f"{total_n} box{'es' if total_n != 1 else ''}")
 
     def get_selected_class(self) -> str:
         """Return custom class if typed, otherwise combo selection."""

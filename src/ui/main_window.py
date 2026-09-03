@@ -465,11 +465,11 @@ class MainWindow(tk.Frame):
         sugg_polys = ann.suggested_polygons if ann else []
 
         self.player.set_overlay_boxes(boxes)
-        self.player.set_overlay_suggested_boxes(suggs)
+        self.player.set_overlay_suggested_boxes([])
         self.player.set_overlay_polygons(polygons)
-        self.player.set_overlay_suggested_polygons(sugg_polys)
+        self.player.set_overlay_suggested_polygons([])
 
-        self.ann_panel.update_boxes(boxes, self.manager.yolo.class_names, suggested_boxes=suggs)
+        self.ann_panel.update_boxes(boxes, self.manager.yolo.class_names)
         class_names = list(self.manager.yolo.class_names.values())
         self.seg_panel.update_polygons(polygons, class_names)
         self._sync_color_map()
@@ -722,22 +722,23 @@ class MainWindow(tk.Frame):
         conf       = self.ann_panel.get_confidence_threshold()
         cls_filter = self.ann_panel.get_class_filter()
         self.manager.yolo.confidence = conf
-        self._set_status(f"Running YOLO on index {idx + 1}…")
-        log.info(f"YOLO single — idx={idx}, conf={conf}, filter={cls_filter}")
+        self._set_status(f"Annotating index {idx + 1}…")
+        log.info(f"Auto-annotate single — idx={idx}, conf={conf}, filter={cls_filter}")
 
         def _work():
             ann = self.manager.auto_annotate_frame(idx)
             if cls_filter:
-                ann.suggested_boxes = [
-                    b for b in ann.suggested_boxes
+                ann.boxes = [
+                    b for b in ann.boxes
                     if b.class_name.lower() in cls_filter
                 ]
+                ann._refresh_annotated()
             return ann
 
         def _done(ann):
             self._refresh_current_frame_overlays()
             self._set_status(
-                f"YOLO: {len(ann.suggested_boxes)} AI suggestion(s) at index {idx + 1}. Review and verify."
+                f"Annotated {len(ann.boxes)} box(es) on index {idx + 1}."
             )
             self._refresh_ann_count()
 
@@ -751,27 +752,28 @@ class MainWindow(tk.Frame):
         cls_filter = self.ann_panel.get_class_filter()
         self.manager.yolo.confidence = conf
 
-        self._set_status("Running YOLO on all frames…")
-        log.info(f"YOLO all — conf={conf}, filter={cls_filter}")
+        self._set_status("Annotating all frames…")
+        log.info(f"Auto-annotate all — conf={conf}, filter={cls_filter}")
 
         def _progress(done, tot):
             self.after(0, lambda d=done, t=tot: self._set_status(
-                f"YOLO annotating… {d}/{t}"
+                f"Annotating… {d}/{t}"
             ))
 
         def _work():
             self.manager.auto_annotate_all(progress_callback=_progress)
             if cls_filter:
                 for ann in self.manager._annotations.values():
-                    ann.suggested_boxes = [
-                        b for b in ann.suggested_boxes
+                    ann.boxes = [
+                        b for b in ann.boxes
                         if b.class_name.lower() in cls_filter
                     ]
+                    ann._refresh_annotated()
             return self.manager.total_count
 
         def _done(count):
             self._refresh_current_frame_overlays()
-            self._set_status("YOLO AI suggestions generated across all frames. Review & verify.")
+            self._set_status("Auto-annotation complete across all frames.")
             self._refresh_ann_count()
 
         self._run_in_thread(_work, _done)
@@ -788,22 +790,23 @@ class MainWindow(tk.Frame):
             log.info(f"Switching segmentation model to: {selected_model}")
             self.manager.yolo.reload(selected_model)
         self.manager.yolo.confidence = conf
-        self._set_status(f"Running YOLO auto polygon segmentation on index {idx + 1}…")
-        log.info(f"YOLO seg single — idx={idx}, model={selected_model}, conf={conf}, filter={cls_filter}")
+        self._set_status(f"Auto-segmenting index {idx + 1}…")
+        log.info(f"Auto-seg single — idx={idx}, model={selected_model}, conf={conf}, filter={cls_filter}")
 
         def _work():
             ann = self.manager.auto_annotate_polygons_frame(idx)
             if cls_filter:
-                ann.suggested_polygons = [
-                    p for p in ann.suggested_polygons
+                ann.polygons = [
+                    p for p in ann.polygons
                     if p.class_name.lower() in cls_filter
                 ]
+                ann._refresh_annotated()
             return ann
 
         def _done(ann):
             self._refresh_current_frame_overlays()
             self._set_status(
-                f"YOLO Seg: {len(ann.suggested_polygons)} polygon suggestion(s) at index {idx + 1}."
+                f"Annotated {len(ann.polygons)} polygon(s) on index {idx + 1}."
             )
             self._refresh_ann_count()
 
@@ -821,30 +824,29 @@ class MainWindow(tk.Frame):
             self.manager.yolo.reload(selected_model)
         self.manager.yolo.confidence = conf
 
-        self._set_status("Running YOLO polygon segmentation on all frames…")
-        log.info(f"YOLO seg all — model={selected_model}, conf={conf}, filter={cls_filter}")
+        self._set_status("Auto-segmenting all frames…")
+        log.info(f"Auto-seg all — model={selected_model}, conf={conf}, filter={cls_filter}")
 
         def _progress(done, tot):
             self.after(0, lambda d=done, t=tot: self._set_status(
-                f"YOLO polygon annotating… {d}/{t}"
+                f"Annotating polygons… {d}/{t}"
             ))
 
         def _work():
             self.manager.auto_annotate_polygons_all(progress_callback=_progress)
             if cls_filter:
                 for ann in self.manager._annotations.values():
-                    ann.suggested_polygons = [
-                        p for p in ann.suggested_polygons
+                    ann.polygons = [
+                        p for p in ann.polygons
                         if p.class_name.lower() in cls_filter
                     ]
+                    ann._refresh_annotated()
             return self.manager.total_count
 
         def _done(count):
             self._refresh_current_frame_overlays()
-            self._set_status("YOLO polygon AI suggestions complete. Review and verify.")
+            self._set_status("Auto-segmentation complete across all frames.")
             self._refresh_ann_count()
-
-        self._run_in_thread(_work, _done)
 
         self._run_in_thread(_work, _done)
 

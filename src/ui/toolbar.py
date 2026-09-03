@@ -1,7 +1,7 @@
 """
 ui/toolbar.py
 ──────────────
-Top toolbar with file-open, mode-toggle, save, and YOLO buttons.
+Top toolbar with file-open, mode-toggle, save, and Annotate buttons.
 """
 import tkinter as tk
 
@@ -53,7 +53,7 @@ class Toolbar(tk.Frame):
         # ── Actions ───────────────────────────────────────────────────────────
         self._btn("Save",      callbacks.get("on_save"))
         self._btn("Clear",     callbacks.get("on_clear"))
-        self._btn("YOLO All",  callbacks.get("on_yolo_all"))
+        self._btn("Annotate All", callbacks.get("on_yolo_all"))
 
         # Default mode highlight
         self.set_mode("VIEW")
